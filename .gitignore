@@ -1,0 +1,33 @@
+# 浏览器持久化 Profile（包含登录 Cookie，不要提交到 Git）
+profiles/
+
+# 日志文件
+logs/*.log
+
+# 截图文件
+screenshots/*.png
+screenshots/*.jpg
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+env/
+
+# macOS
+.DS_Store
+
+# IDE：忽略 VS Code 个人配置，但保留仓库内的 launch / 推荐扩展
+.vscode/*
+!.vscode/launch.json
+!.vscode/extensions.json
+.idea/
+*.swp
+
+# 工具缓存
+.ruff_cache/
+.mypy_cache/
+.pytest_cache/
+*.egg-info/

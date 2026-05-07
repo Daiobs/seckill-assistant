@@ -1,0 +1,4 @@
+# Optional development dependencies (formatting / lint)
+# pip install -r requirements-dev.txt
+
+ruff>=0.6.0

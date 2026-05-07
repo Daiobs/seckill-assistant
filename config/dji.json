@@ -1,0 +1,77 @@
+{
+  "_comment": "大疆官网 DJI Pocket 4 抢购配置",
+
+  "platform": "dji",
+
+  "product": {
+    "name": "DJI Pocket 4",
+    "url": "https://store.dji.com/cn/product/dji-pocket-4",
+    "sku_id": "dji-pocket-4"
+  },
+
+  "schedule": {
+    "sale_time": "2025-12-01 10:00:00",
+    "timezone": "Asia/Shanghai",
+    "warmup_seconds_before": 300,
+    "high_freq_seconds_before": 60,
+    "poll_interval_normal": 5.0,
+    "poll_interval_warmup": 2.0,
+    "poll_interval_high_freq": 0.3,
+    "max_retry_on_error": 5,
+    "retry_wait_seconds": 3.0
+  },
+
+  "selectors": {
+    "btn_buy_now":       ".buy-btn, .add-to-cart-btn, [data-action='buy'], button[class*='buy']",
+    "btn_add_to_cart":   ".add-to-cart, [data-action='add-to-cart'], button[class*='cart']",
+    "btn_appointment":   ".notify-me, .pre-sale-btn, [data-action='notify'], button[class*='notify']",
+    "btn_out_of_stock":  ".sold-out, .out-of-stock, button[disabled], [class*='sold-out']",
+    "checkout_submit":   ".checkout-btn, [data-action='checkout'], button[class*='checkout']",
+    "price":             ".price-value, .product-price, [class*='price']",
+    "captcha_container": "[class*='captcha'], [id*='captcha'], [class*='slider'], [class*='verify']",
+    "login_check":       ".user-info, .logged-in, [class*='user-avatar'], [class*='account']"
+  },
+
+  "purchase": {
+    "auto_submit_order": false,
+    "dry_run": true,
+    "quantity": 1,
+    "buy_now_flow": true,
+    "cart_flow_fallback": true,
+    "address_index": 0
+  },
+
+  "notify": {
+    "methods": ["desktop", "log"],
+    "bark_url": "",
+    "pushplus_token": "",
+    "smtp": {
+      "enabled": false,
+      "host": "smtp.qq.com",
+      "port": 465,
+      "user": "",
+      "password": "",
+      "to": ""
+    },
+    "webhook_url": ""
+  },
+
+  "browser": {
+    "profile_dir": "profiles/dji_profile",
+    "headless": false,
+    "slow_mo": 50,
+    "viewport": {"width": 1280, "height": 800},
+    "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+    "timeout_ms": 15000,
+    "navigation_timeout_ms": 30000
+  },
+
+  "logging": {
+    "level": "INFO",
+    "log_dir": "logs",
+    "screenshot_dir": "screenshots",
+    "screenshot_on_purchase": true,
+    "screenshot_on_error": true,
+    "screenshot_on_captcha": true
+  }
+}

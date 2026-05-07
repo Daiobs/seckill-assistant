@@ -1,0 +1,20 @@
+# 抢购助手依赖
+# 安装：pip install -r requirements.txt
+# Playwright 浏览器安装：playwright install chromium
+
+# 核心依赖
+playwright>=1.44.0
+
+# 时区支持（Python 3.9+ 内置 zoneinfo，此处为兼容性保留）
+# tzdata 在 Windows 上需要显式安装
+tzdata>=2024.1
+
+# 可选：Windows 桌面通知（Linux/macOS 不需要）
+# plyer>=2.1.0
+
+# 可选：更丰富的日志格式
+# colorlog>=6.8.0
+
+# 开发/测试工具（可选）
+# pytest>=8.0.0
+# pytest-playwright>=0.5.0

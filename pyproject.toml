@@ -1,0 +1,21 @@
+# Ruff configuration for scripts/ (no installable package yet).
+# Install: pip install -r requirements-dev.txt
+
+[tool.ruff]
+target-version = "py39"
+line-length = 100
+src = ["scripts"]
+
+[tool.ruff.lint]
+select = [
+  "E",   # pycodestyle errors
+  "F",   # Pyflakes
+  "I",   # isort
+  "UP",  # pyupgrade
+  "B",   # flake8-bugbear
+]
+ignore = [
+  "E501",  # line length (handled by formatter preference)
+]
+
+# noqa: BLE001 等仍在各文件边界处按需标注；未启用 flake8-blind-except 规则集

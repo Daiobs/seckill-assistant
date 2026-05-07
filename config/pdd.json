@@ -1,0 +1,63 @@
+{
+  "_comment": "拼多多配置框架（预留，首版不作为重点，watch_pdd.py 尚未实现）",
+
+  "platform": "pdd",
+
+  "product": {
+    "name": "DJI Pocket 4",
+    "url": "https://mobile.yangkeduo.com/goods.html?goods_id=PLACEHOLDER",
+    "sku_id": "PLACEHOLDER"
+  },
+
+  "schedule": {
+    "sale_time": "2025-12-01 10:00:00",
+    "timezone": "Asia/Shanghai",
+    "warmup_seconds_before": 300,
+    "high_freq_seconds_before": 60,
+    "poll_interval_normal": 5.0,
+    "poll_interval_warmup": 2.0,
+    "poll_interval_high_freq": 0.5,
+    "max_retry_on_error": 5,
+    "retry_wait_seconds": 3.0
+  },
+
+  "selectors": {
+    "btn_buy_now":       "PLACEHOLDER - 拼多多按钮选择器待补充",
+    "btn_add_to_cart":   "PLACEHOLDER",
+    "btn_out_of_stock":  "PLACEHOLDER",
+    "checkout_submit":   "PLACEHOLDER",
+    "captcha_container": "PLACEHOLDER",
+    "login_check":       "PLACEHOLDER"
+  },
+
+  "purchase": {
+    "auto_submit_order": false,
+    "dry_run": true,
+    "quantity": 1
+  },
+
+  "notify": {
+    "methods": ["desktop", "log"],
+    "bark_url": "",
+    "pushplus_token": ""
+  },
+
+  "browser": {
+    "profile_dir": "profiles/pdd_profile",
+    "headless": false,
+    "slow_mo": 80,
+    "viewport": {"width": 390, "height": 844},
+    "user_agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
+    "timeout_ms": 15000,
+    "navigation_timeout_ms": 30000
+  },
+
+  "logging": {
+    "level": "INFO",
+    "log_dir": "logs",
+    "screenshot_dir": "screenshots",
+    "screenshot_on_purchase": true,
+    "screenshot_on_error": true,
+    "screenshot_on_captcha": true
+  }
+}

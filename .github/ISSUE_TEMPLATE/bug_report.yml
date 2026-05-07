@@ -1,0 +1,46 @@
+name: Bug report
+description: Report a problem running seckill-assistant
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to fill out this bug report.
+
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened?
+      description: Describe the bug and what you expected instead.
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: How to reproduce
+      description: Command line, platform (jd/dji), and config hints (redact secrets).
+      placeholder: |
+        python scripts/run_sale.py --platform jd --dry-run
+        ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: OS, Python version, Playwright version if known.
+      placeholder: |
+        - OS: macOS 14
+        - Python: 3.11
+        - playwright: 1.44
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs / screenshots
+      description: Paste relevant log lines (remove personal URLs or tokens).

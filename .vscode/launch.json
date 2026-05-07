@@ -1,0 +1,41 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "run_sale: JD check-login",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/scripts/run_sale.py",
+      "cwd": "${workspaceFolder}",
+      "args": ["--platform", "jd", "--check-login"],
+      "console": "integratedTerminal"
+    },
+    {
+      "name": "run_sale: JD dry-run",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/scripts/run_sale.py",
+      "cwd": "${workspaceFolder}",
+      "args": ["--platform", "jd", "--dry-run"],
+      "console": "integratedTerminal"
+    },
+    {
+      "name": "run_sale: JD test-notify",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/scripts/run_sale.py",
+      "cwd": "${workspaceFolder}",
+      "args": ["--platform", "jd", "--test-notify"],
+      "console": "integratedTerminal"
+    },
+    {
+      "name": "run_sale: DJI dry-run",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/scripts/run_sale.py",
+      "cwd": "${workspaceFolder}",
+      "args": ["--platform", "dji", "--dry-run"],
+      "console": "integratedTerminal"
+    }
+  ]
+}

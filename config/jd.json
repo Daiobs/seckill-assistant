@@ -1,0 +1,81 @@
+{
+  "_comment": "京东 DJI Pocket 4 抢购配置",
+
+  "platform": "jd",
+
+  "product": {
+    "name": "DJI Pocket 4",
+    "url": "https://item.jd.com/10133694693.html",
+    "sku_id": "10133694693"
+  },
+
+  "schedule": {
+    "sale_time": "2025-12-01 10:00:00",
+    "timezone": "Asia/Shanghai",
+    "warmup_seconds_before": 300,
+    "high_freq_seconds_before": 60,
+    "poll_interval_normal": 5.0,
+    "poll_interval_warmup": 2.0,
+    "poll_interval_high_freq": 0.3,
+    "max_retry_on_error": 5,
+    "retry_wait_seconds": 3.0
+  },
+
+  "selectors": {
+    "btn_buy_now":       "#btn-reservation, .btn-reservation, #btn-buy-now, .btn-buy-now, [id*='btn-buy'], [class*='btn-buy']",
+    "btn_add_to_cart":   "#btn-cart, .btn-cart, [id*='add-cart'], [class*='add-cart']",
+    "btn_appointment":   "#btn-appointment, .btn-appointment, [id*='appointment'], [class*='appointment']",
+    "btn_presale":       "#btn-presale, .btn-presale, [id*='presale'], [class*='presale']",
+    "btn_out_of_stock":  ".btn-disabled, [class*='btn-disabled'], #InitCartUrl[disabled], #btn-reservation[disabled], #btn-buy-now[disabled], .btn-buy-now[disabled]",
+    "checkout_submit":   "#order-submit, .order-submit, [id*='order-submit'], [class*='submit-btn']",
+    "checkout_confirm":  ".btn-confirm, [id*='confirm'], [class*='confirm-btn']",
+    "price":             ".p-price .price, #jd-price, .price-b",
+    "stock_status":      ".p-stock .pstock, #store-prompt, .stock-prompt",
+    "captcha_container": "#JDJRV-wrap-loginsubmit, .JDJRV-slide, [id*='captcha'], [class*='captcha'], [class*='slider']",
+    "login_check":       "#ttbar-login a, .nickname, [class*='nickname']"
+  },
+
+  "purchase": {
+    "auto_submit_order": false,
+    "dry_run": true,
+    "quantity": 1,
+    "buy_now_flow": true,
+    "cart_flow_fallback": true,
+    "address_index": 0,
+    "invoice_skip": true
+  },
+
+  "notify": {
+    "methods": ["desktop", "log"],
+    "bark_url": "",
+    "pushplus_token": "",
+    "smtp": {
+      "enabled": false,
+      "host": "smtp.qq.com",
+      "port": 465,
+      "user": "",
+      "password": "",
+      "to": ""
+    },
+    "webhook_url": ""
+  },
+
+  "browser": {
+    "profile_dir": "profiles/jd_profile",
+    "headless": false,
+    "slow_mo": 50,
+    "viewport": {"width": 1280, "height": 800},
+    "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+    "timeout_ms": 15000,
+    "navigation_timeout_ms": 30000
+  },
+
+  "logging": {
+    "level": "INFO",
+    "log_dir": "logs",
+    "screenshot_dir": "screenshots",
+    "screenshot_on_purchase": true,
+    "screenshot_on_error": true,
+    "screenshot_on_captcha": true
+  }
+}
