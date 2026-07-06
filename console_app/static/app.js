@@ -5,6 +5,16 @@ const els = {
   runtimePid: document.querySelector("#runtimePid"),
   loginPid: document.querySelector("#loginPid"),
   lastError: document.querySelector("#lastError"),
+  jobJd: document.querySelector("#jobJd"),
+  jobDji: document.querySelector("#jobDji"),
+  jdStatus: document.querySelector("#jdStatus"),
+  jdPid: document.querySelector("#jdPid"),
+  jdMode: document.querySelector("#jdMode"),
+  jdHuman: document.querySelector("#jdHuman"),
+  djiStatus: document.querySelector("#djiStatus"),
+  djiPid: document.querySelector("#djiPid"),
+  djiMode: document.querySelector("#djiMode"),
+  djiHuman: document.querySelector("#djiHuman"),
   jdEnabled: document.querySelector("#jdEnabled"),
   djiEnabled: document.querySelector("#djiEnabled"),
   dryRun: document.querySelector("#dryRun"),
@@ -22,6 +32,14 @@ const els = {
   confirmLogin: document.querySelector("#confirmLogin"),
   startMonitor: document.querySelector("#startMonitor"),
   stopMonitor: document.querySelector("#stopMonitor"),
+  stopJd: document.querySelector("#stopJd"),
+  stopDji: document.querySelector("#stopDji"),
+  continueJd: document.querySelector("#continueJd"),
+  continueDji: document.querySelector("#continueDji"),
+  continueAll: document.querySelector("#continueAll"),
+  diagnoseJd: document.querySelector("#diagnoseJd"),
+  diagnoseDji: document.querySelector("#diagnoseDji"),
+  diagnosisOutput: document.querySelector("#diagnosisOutput"),
   logs: document.querySelector("#logs"),
   autoScroll: document.querySelector("#autoScroll"),
   latestScreenshot: document.querySelector("#latestScreenshot"),
@@ -141,12 +159,27 @@ function connectLogs() {
 
 async function refreshStatus() {
   const status = await api("/api/status");
-  els.statusText.textContent = status.status || "等待";
+  els.statusText.textContent = status.aggregate_status || status.status || "等待";
   els.runtimePlatform.textContent = status.platform || "-";
   els.runtimeMode.textContent = status.pid ? (status.dry_run ? "Dry-Run" : "实战") : "-";
   els.runtimePid.textContent = status.pid || "-";
   els.loginPid.textContent = status.login_check_pid || "-";
   els.lastError.textContent = status.last_error || "";
+  updateJob("jd", status.jobs?.jd || {});
+  updateJob("dji", status.jobs?.dji || {});
+}
+
+function updateJob(platform, job) {
+  const prefix = platform === "jd" ? "jd" : "dji";
+  const card = platform === "jd" ? els.jobJd : els.jobDji;
+  els[`${prefix}Status`].textContent = job.status || "等待";
+  els[`${prefix}Pid`].textContent = job.pid || "-";
+  els[`${prefix}Mode`].textContent = job.pid ? (job.dry_run ? "Dry-Run" : "实战") : "-";
+  els[`${prefix}Human`].textContent = job.waiting_for_human ? "是" : "否";
+  card.classList.toggle("needs-human", Boolean(job.waiting_for_human));
+  card.classList.toggle("is-running", Boolean(job.pid));
+  const continueButton = platform === "jd" ? els.continueJd : els.continueDji;
+  continueButton.classList.toggle("needs-human", Boolean(job.waiting_for_human));
 }
 
 async function refreshScreenshot() {
@@ -213,17 +246,49 @@ async function startMonitor(confirmText = "") {
   await refreshStatus();
 }
 
-async function stopMonitor() {
-  await api("/api/stop", { method: "POST", body: "{}" });
+async function stopMonitor(platform = "all") {
+  await api("/api/stop", { method: "POST", body: JSON.stringify({ platform }) });
   toast("监控已停止");
   await refreshStatus();
+}
+
+async function continueMonitor(platform) {
+  await api("/api/continue", {
+    method: "POST",
+    body: JSON.stringify({ platform }),
+  });
+  toast(`已发送继续信号：${platform}`);
+  await refreshStatus();
+}
+
+async function diagnose(platform) {
+  els.diagnosisOutput.textContent = `${platform} 诊断中...`;
+  const data = await api("/api/diagnose", {
+    method: "POST",
+    body: JSON.stringify({ platform }),
+  });
+  els.diagnosisOutput.textContent = JSON.stringify(data.diagnosis, null, 2);
+  toast("诊断完成");
 }
 
 els.saveConfig.addEventListener("click", () => saveConfig().catch((err) => toast(err.message)));
 els.loginJd.addEventListener("click", () => loginCheck("jd").catch((err) => toast(err.message)));
 els.loginDji.addEventListener("click", () => loginCheck("dji").catch((err) => toast(err.message)));
 els.confirmLogin.addEventListener("click", () => confirmLoginCheck().catch((err) => toast(err.message)));
-els.stopMonitor.addEventListener("click", () => stopMonitor().catch((err) => toast(err.message)));
+els.stopMonitor.addEventListener("click", () => stopMonitor("all").catch((err) => toast(err.message)));
+els.stopJd.addEventListener("click", () => stopMonitor("jd").catch((err) => toast(err.message)));
+els.stopDji.addEventListener("click", () => stopMonitor("dji").catch((err) => toast(err.message)));
+els.continueJd.addEventListener("click", () => continueMonitor("jd").catch((err) => toast(err.message)));
+els.continueDji.addEventListener("click", () => continueMonitor("dji").catch((err) => toast(err.message)));
+els.continueAll.addEventListener("click", () => continueMonitor("all").catch((err) => toast(err.message)));
+els.diagnoseJd.addEventListener("click", () => diagnose("jd").catch((err) => {
+  els.diagnosisOutput.textContent = err.message;
+  toast(err.message);
+}));
+els.diagnoseDji.addEventListener("click", () => diagnose("dji").catch((err) => {
+  els.diagnosisOutput.textContent = err.message;
+  toast(err.message);
+}));
 
 els.startMonitor.addEventListener("click", async () => {
   if (els.dryRun.checked) {
@@ -259,4 +324,3 @@ async function boot() {
 }
 
 boot().catch((err) => toast(err.message));
-

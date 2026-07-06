@@ -133,6 +133,13 @@ def cmd_test_notify(cfg: dict) -> None:
     print("✅ 测试通知已发送，请检查各通知渠道")
 
 
+def cmd_diagnose(platform: str, config_path: str | None = None) -> None:
+    """Run a one-shot page diagnosis."""
+    from diagnose_page import diagnose
+
+    diagnose(platform, Path(config_path) if config_path else None)
+
+
 def _resolve_config_path(platform: str, override: str | None = None) -> str:
     if override:
         return override
@@ -186,6 +193,11 @@ def run_both_platforms(args: argparse.Namespace) -> None:
     if args.test_notify:
         cmd_test_notify(jd_cfg)
         cmd_test_notify(dji_cfg)
+        return
+
+    if args.diagnose:
+        cmd_diagnose("jd", args.jd_config)
+        cmd_diagnose("dji", args.dji_config)
         return
 
     errors: list[str] = []
@@ -291,6 +303,12 @@ def main() -> None:
         help="发送测试通知并退出",
     )
     parser.add_argument(
+        "--diagnose",
+        action="store_true",
+        default=False,
+        help="诊断商品页选择器并退出",
+    )
+    parser.add_argument(
         "--log-level",
         default=None,
         choices=["DEBUG", "INFO", "WARNING", "ERROR"],
@@ -342,6 +360,10 @@ def main() -> None:
 
     if args.test_notify:
         cmd_test_notify(cfg)
+        return
+
+    if args.diagnose:
+        cmd_diagnose(platform, config_path)
         return
 
     # 检查平台是否已实现

@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import time
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
@@ -68,8 +68,36 @@ async def api_start(payload: dict[str, Any]) -> dict[str, Any]:
 
 
 @app.post("/api/stop")
-async def api_stop() -> dict[str, Any]:
-    return runtime_manager.stop_monitor()
+async def api_stop(payload: Optional[dict[str, Any]] = None) -> dict[str, Any]:  # noqa: UP045
+    try:
+        platform = "all" if payload is None else str(payload.get("platform", "all"))
+        return runtime_manager.stop_monitor(platform)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/continue")
+async def api_continue(payload: dict[str, Any]) -> dict[str, Any]:
+    try:
+        return runtime_manager.continue_monitor(str(payload.get("platform", "all")))
+    except RuntimeError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/diagnose")
+async def api_diagnose(payload: dict[str, Any]) -> dict[str, Any]:
+    try:
+        return runtime_manager.run_diagnose(str(payload.get("platform", "")))
+    except RuntimeError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/api/diagnose/latest/{platform}")
+def api_diagnose_latest(platform: str) -> dict[str, Any]:
+    try:
+        return runtime_manager.get_latest_diagnosis(platform)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @app.get("/api/logs")

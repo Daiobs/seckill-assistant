@@ -34,12 +34,15 @@ from notify import (
     notify_purchase_success,
     send_notification,
 )
+from runtime_events import emit_event
 from utils import (
     ButtonState,
+    LoginState,
     SeckillState,
     check_captcha,
-    check_login_valid,
     create_browser_context,
+    dismiss_cookie_banner,
+    find_action_element,
     format_countdown,
     load_config,
     seconds_until_sale,
@@ -47,7 +50,9 @@ from utils import (
     smart_sleep,
     take_screenshot,
     validate_order_before_submit,
+    verify_after_submit,
     visible_unavailable_cta,
+    wait_for_login_state,
 )
 
 logger = logging.getLogger("seckill.dji")
@@ -62,29 +67,6 @@ def detect_button_state_dji(page: Page, selectors: dict[str, str]) -> str:
     检测大疆官网商品页按钮状态。
     大疆官网按钮文本通常为中文，辅以文本匹配。
     """
-    def _visible_and_enabled(sel: str) -> bool:
-        if not sel:
-            return False
-        try:
-            for s in [x.strip() for x in sel.split(",")]:
-                el = page.query_selector(s)
-                if el and el.is_visible() and el.is_enabled():
-                    return True
-        except Exception:  # noqa: BLE001
-            pass
-        return False
-
-    # 通过按钮文本辅助判断
-    def _find_button_by_text(texts: list[str]) -> bool:
-        for text in texts:
-            try:
-                el = page.get_by_role("button", name=text, exact=False).first
-                if el and el.is_visible() and el.is_enabled():
-                    return True
-            except Exception:  # noqa: BLE001
-                pass
-        return False
-
     def _find_sold_out_by_text(texts: list[str]) -> bool:
         """售罄按钮常为 disabled，不要求 is_enabled。"""
         for text in texts:
@@ -97,18 +79,27 @@ def detect_button_state_dji(page: Page, selectors: dict[str, str]) -> str:
         return False
 
     # 立即购买
-    if _visible_and_enabled(selectors.get("btn_buy_now", "")) or \
-       _find_button_by_text(["立即购买", "Buy Now", "立即抢购"]):
+    if find_action_element(
+        page,
+        selectors,
+        "btn_buy_now",
+        ["立即购买", "立即抢购", "Buy Now"],
+        blocked_texts=["加入购物车", "Add to Cart", "售罄", "Sold Out", "到货通知"],
+    ):
         return ButtonState.BUY_NOW
 
     # 加入购物车
-    if _visible_and_enabled(selectors.get("btn_add_to_cart", "")) or \
-       _find_button_by_text(["加入购物车", "Add to Cart"]):
+    if find_action_element(
+        page,
+        selectors,
+        "btn_add_to_cart",
+        ["加入购物车", "Add to Cart"],
+        blocked_texts=["立即购买", "Buy Now", "售罄", "Sold Out", "到货通知"],
+    ):
         return ButtonState.ADD_TO_CART
 
     # 预约/到货通知
-    if _visible_and_enabled(selectors.get("btn_appointment", "")) or \
-       _find_button_by_text(["到货通知", "预约", "Notify Me"]):
+    if find_action_element(page, selectors, "btn_appointment", ["到货通知", "预约", "Notify Me"]):
         return ButtonState.APPOINTMENT
 
     # 售罄/无货
@@ -136,47 +127,39 @@ def click_buy_button_dji(
         take_screenshot(page, screenshot_dir, tag="dji_dry_run_detected")
         return False
 
-    # 优先用选择器，再用文本匹配
-    sel_map = {
-        ButtonState.BUY_NOW: selectors.get("btn_buy_now", ""),
-        ButtonState.ADD_TO_CART: selectors.get("btn_add_to_cart", ""),
-    }
     text_map = {
         ButtonState.BUY_NOW: ["立即购买", "Buy Now", "立即抢购"],
         ButtonState.ADD_TO_CART: ["加入购物车", "Add to Cart"],
     }
 
-    sel = sel_map.get(btn_state, "")
     texts = text_map.get(btn_state, [])
 
     take_screenshot(page, screenshot_dir, tag="dji_before_click")
 
-    # 尝试选择器
-    if sel:
-        for s in [x.strip() for x in sel.split(",")]:
-            try:
-                el = page.query_selector(s)
-                if el and el.is_visible() and el.is_enabled():
-                    logger.info("点击大疆按钮（selector）：%s", s)
-                    el.click()
-                    page.wait_for_timeout(2000)
-                    take_screenshot(page, screenshot_dir, tag="dji_after_click")
-                    return True
-            except Exception as exc:  # noqa: BLE001
-                logger.warning("选择器 [%s] 点击失败：%s", s, exc)
-
-    # 尝试文本匹配
-    for text in texts:
+    match = find_action_element(
+        page,
+        selectors,
+        "btn_buy_now" if btn_state == ButtonState.BUY_NOW else "btn_add_to_cart",
+        texts,
+        blocked_texts=["售罄", "Sold Out", "到货通知", "Notify Me"],
+    )
+    if match:
         try:
-            el = page.get_by_role("button", name=text, exact=False).first
-            if el and el.is_visible() and el.is_enabled():
-                logger.info("点击大疆按钮（文本匹配）：%s", text)
-                el.click()
-                page.wait_for_timeout(2000)
-                take_screenshot(page, screenshot_dir, tag="dji_after_click_text")
-                return True
+            logger.info(
+                '命中购买按钮：platform=dji state=%s selector="%s" text="%s" tag=%s class="%s" id="%s"',
+                btn_state,
+                match["selector"],
+                match["text"],
+                match["tag"],
+                match["class"],
+                match["id"],
+            )
+            match["element"].click()
+            page.wait_for_timeout(2000)
+            take_screenshot(page, screenshot_dir, tag="dji_after_click")
+            return True
         except Exception as exc:  # noqa: BLE001
-            logger.warning("文本匹配 [%s] 点击失败：%s", text, exc)
+            logger.warning("大疆按钮点击失败：%s", exc)
 
     logger.error("大疆官网：所有按钮点击方式均失败")
     return False
@@ -202,7 +185,8 @@ def handle_dji_checkout(
 
     if is_cart:
         logger.info("大疆：已进入购物车页，尝试进入结算：%s", current_url)
-        take_screenshot(page, screenshot_dir, tag="dji_cart_page")
+        scr_path = take_screenshot(page, screenshot_dir, tag="dji_cart_page")
+        emit_event("dji", "checkout", "大疆已进入购物车页", scr_path, {"url": current_url})
         cart_checkout_sel = selectors.get(
             "cart_checkout",
             ".checkout-btn, [data-action='checkout'], button[class*='checkout']",
@@ -226,6 +210,7 @@ def handle_dji_checkout(
 
     logger.info("大疆：已进入结算/购物车页：%s", current_url)
     scr_path = take_screenshot(page, screenshot_dir, tag="dji_checkout_page")
+    emit_event("dji", "checkout", "大疆已进入结算页", scr_path, {"url": current_url})
     notify_purchase_success(product_name, scr_path, notify_cfg)
 
     if not auto_submit:
@@ -246,7 +231,8 @@ def handle_dji_checkout(
     ok, validation_msg = validate_order_before_submit(page, cfg, platform="大疆官网")
     if not ok:
         logger.error("大疆：自动提交前校验失败：%s", validation_msg)
-        take_screenshot(page, screenshot_dir, tag="dji_submit_blocked")
+        scr_path = take_screenshot(page, screenshot_dir, tag="dji_submit_blocked")
+        emit_event("dji", "need_human", validation_msg, scr_path, {"url": page.url})
         notify_human_takeover(
             f"大疆官网自动提交前校验失败，已暂停：{validation_msg}",
             notify_cfg,
@@ -263,18 +249,43 @@ def handle_dji_checkout(
                 if el and el.is_visible() and el.is_enabled():
                     logger.info("大疆：自动点击提交订单：%s", s)
                     take_screenshot(page, screenshot_dir, tag="dji_before_submit")
+                    emit_event("dji", "checkout", "大疆准备自动提交订单", extra={"url": page.url})
                     el.click()
-                    page.wait_for_timeout(3000)
+                    submit_ok, submit_msg = verify_after_submit(page, cfg, platform="大疆官网")
                     after_submit_path = take_screenshot(page, screenshot_dir, tag="dji_after_submit")
-                    notify_purchase_success(
-                        product_name + "（大疆官网已自动提交订单）",
-                        after_submit_path,
-                        notify_cfg,
-                    )
+                    logger.info("大疆提交后校验结果：%s", submit_msg)
+                    if submit_ok:
+                        emit_event(
+                            "dji",
+                            "submitted",
+                            submit_msg,
+                            after_submit_path,
+                            {"url": page.url},
+                        )
+                        notify_purchase_success(
+                            product_name + "（大疆官网已自动提交订单）",
+                            after_submit_path,
+                            notify_cfg,
+                        )
+                    else:
+                        emit_event(
+                            "dji",
+                            "need_human",
+                            submit_msg,
+                            after_submit_path,
+                            {"url": page.url},
+                        )
+                        notify_human_takeover(
+                            f"大疆官网自动提交后结果未确认，已暂停：{submit_msg}",
+                            notify_cfg,
+                        )
+                        input(">>> 请人工确认大疆订单状态。处理完成后按 Enter 继续...")
                     return True
             except Exception as exc:  # noqa: BLE001
                 logger.error("大疆：自动提交失败：%s", exc)
 
+    scr_path = take_screenshot(page, screenshot_dir, tag="dji_submit_button_not_found")
+    emit_event("dji", "need_human", "大疆未找到可点击的提交订单按钮", scr_path, {"url": page.url})
     return True
 
 
@@ -326,12 +337,16 @@ def run_watch_loop_dji(cfg: dict[str, Any], dry_run_override: bool = False) -> N
             logger.info("大疆官网：打开商品页：%s", product_url)
             page.goto(product_url, wait_until="domcontentloaded")
             page.wait_for_timeout(2000)  # 大疆官网 JS 渲染较慢
-            take_screenshot(page, screenshot_dir, tag="dji_page_open")
+            dismiss_cookie_banner(page, "dji")
+            scr_path = take_screenshot(page, screenshot_dir, tag="dji_page_open")
+            emit_event("dji", "monitoring", "大疆商品页已打开", scr_path, {"url": page.url})
 
             # 检查登录
-            if not check_login_valid(page, selectors):
+            login_state = wait_for_login_state(page, selectors, "dji", dry_run)
+            if login_state != LoginState.LOGGED_IN:
                 logger.warning("大疆官网：未检测到登录状态")
-                take_screenshot(page, screenshot_dir, tag="dji_login_check")
+                scr_path = take_screenshot(page, screenshot_dir, tag="dji_login_check")
+                emit_event("dji", "need_human", "大疆登录态未知或失效", scr_path, {"url": page.url})
                 notify_human_takeover(
                     "大疆官网未登录，请在浏览器中手动登录后按 Enter 继续",
                     notify_cfg,
@@ -339,6 +354,8 @@ def run_watch_loop_dji(cfg: dict[str, Any], dry_run_override: bool = False) -> N
                 input(">>> 请在浏览器中完成大疆账号登录，然后按 Enter 继续...")
                 page.reload(wait_until="domcontentloaded")
                 page.wait_for_timeout(2000)
+                scr_path = take_screenshot(page, screenshot_dir, tag="dji_after_login")
+                emit_event("dji", "monitoring", "大疆登录处理后继续监控", scr_path, {"url": page.url})
 
             logger.info("大疆官网：开始监控商品：%s", product_name)
             send_notification(
@@ -359,12 +376,14 @@ def run_watch_loop_dji(cfg: dict[str, Any], dry_run_override: bool = False) -> N
                         if seckill_state != SeckillState.WARMUP:
                             seckill_state = SeckillState.WARMUP
                             logger.info("大疆：进入预热模式，距开售 %.0f 秒", secs)
+                            emit_event("dji", "monitoring", "大疆进入预热模式", extra={"url": page.url})
                         poll_interval = poll_warmup
                         phase_name = "预热"
                     else:
                         if seckill_state not in (SeckillState.HIGH_FREQ, SeckillState.PURCHASING):
                             seckill_state = SeckillState.HIGH_FREQ
                             logger.info("大疆：进入高频轮询，距开售 %.1f 秒", secs)
+                            emit_event("dji", "monitoring", "大疆进入高频轮询", extra={"url": page.url})
                         poll_interval = poll_high
                         phase_name = "高频"
 
@@ -380,18 +399,21 @@ def run_watch_loop_dji(cfg: dict[str, Any], dry_run_override: bool = False) -> N
                             page.goto(product_url, wait_until="domcontentloaded")
 
                     # 验证码检测
-                    if check_captcha(page, selectors):
+                    if check_captcha(page, selectors, platform="dji"):
                         logger.warning("大疆：检测到验证码")
-                        take_screenshot(page, screenshot_dir, tag="dji_captcha")
+                        scr_path = take_screenshot(page, screenshot_dir, tag="dji_captcha")
+                        emit_event("dji", "need_human", "大疆检测到验证码", scr_path, {"url": page.url})
                         notify_human_takeover("大疆官网检测到验证码，请手动完成后按 Enter 继续", notify_cfg)
                         seckill_state = SeckillState.PAUSED
                         input(">>> 请手动完成验证，然后按 Enter 继续...")
                         seckill_state = SeckillState.HIGH_FREQ
                         continue
 
-                    if not check_login_valid(page, selectors):
+                    login_state = wait_for_login_state(page, selectors, "dji", dry_run)
+                    if login_state != LoginState.LOGGED_IN:
                         logger.warning("大疆：登录失效，暂停并通知人工接管")
-                        take_screenshot(page, screenshot_dir, tag="dji_login_expired")
+                        scr_path = take_screenshot(page, screenshot_dir, tag="dji_login_expired")
+                        emit_event("dji", "need_human", "大疆登录失效或状态未知", scr_path, {"url": page.url})
                         notify_human_takeover(
                             "大疆官网登录失效，请重新登录后按 Enter 继续",
                             notify_cfg,
@@ -409,7 +431,14 @@ def run_watch_loop_dji(cfg: dict[str, Any], dry_run_override: bool = False) -> N
 
                     if btn_state in (ButtonState.BUY_NOW, ButtonState.ADD_TO_CART):
                         logger.info("大疆：检测到可购买按钮！")
-                        take_screenshot(page, screenshot_dir, tag="dji_btn_available")
+                        scr_path = take_screenshot(page, screenshot_dir, tag="dji_btn_available")
+                        emit_event(
+                            "dji",
+                            "stock_found",
+                            f"大疆检测到可购买按钮：{btn_state}",
+                            scr_path,
+                            {"url": page.url},
+                        )
                         notify_purchase_attempt(product_name, notify_cfg)
 
                         seckill_state = SeckillState.PURCHASING
@@ -442,10 +471,24 @@ def run_watch_loop_dji(cfg: dict[str, Any], dry_run_override: bool = False) -> N
                 except Exception as loop_exc:  # noqa: BLE001
                     error_count += 1
                     logger.error("大疆轮询异常（%d/%d）：%s", error_count, max_retry, loop_exc, exc_info=True)
-                    take_screenshot(page, screenshot_dir, tag=f"dji_error_{error_count}")
+                    scr_path = take_screenshot(page, screenshot_dir, tag=f"dji_error_{error_count}")
+                    emit_event(
+                        "dji",
+                        "error",
+                        f"大疆轮询异常：{loop_exc}",
+                        scr_path,
+                        {"url": page.url, "error_count": error_count},
+                    )
 
                     if error_count >= max_retry:
                         notify_human_takeover(f"大疆连续错误 {max_retry} 次：{loop_exc}", notify_cfg)
+                        emit_event(
+                            "dji",
+                            "need_human",
+                            f"大疆连续错误 {max_retry} 次",
+                            scr_path,
+                            {"url": page.url},
+                        )
                         seckill_state = SeckillState.PAUSED
                         input(">>> 请检查后按 Enter 继续，或 Ctrl+C 退出...")
                         error_count = 0
@@ -455,10 +498,12 @@ def run_watch_loop_dji(cfg: dict[str, Any], dry_run_override: bool = False) -> N
 
         except KeyboardInterrupt:
             logger.info("大疆脚本手动停止")
+            emit_event("dji", "stopped", "大疆脚本已手动停止")
         except Exception as fatal:  # noqa: BLE001
             logger.critical("大疆致命错误：%s", fatal, exc_info=True)
             try:
-                take_screenshot(page, screenshot_dir, tag="dji_fatal_error")
+                scr_path = take_screenshot(page, screenshot_dir, tag="dji_fatal_error")
+                emit_event("dji", "error", f"大疆致命错误：{fatal}", scr_path, {"url": page.url})
                 notify_error(product_name, str(fatal), notify_cfg)
             except Exception:  # noqa: BLE001
                 pass

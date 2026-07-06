@@ -161,12 +161,23 @@ http://localhost:8787
 - Dry-Run / 实战模式切换
 - 商品链接、开售时间、关键词、金额上限、自动提交开关
 - 京东与 DJI 登录检查
-- 开始 / 停止监控
+- 开始 / 停止监控；JD 与 DJI 会分别启动子进程，便于单独停止和继续
+- 遇到验证码、登录失效、提交结果未知时，处理完浏览器页面后点击“继续 JD / 继续 DJI / 全部继续”
+- 诊断京东或 DJI 页面，输出 URL、标题、登录态、验证码状态、按钮候选与最新截图
 - 实时日志
 - 最新截图
 - 当前状态展示
 
 实战模式启动前，页面会显示商品链接、金额上限、关键词和开售时间，并要求输入 `我确认`。后端也会检查 `max_order_total_cny`、`require_order_keywords`、`sale_time` 和 `headless=false` 后才允许启动 `--no-dry-run`。
+
+控制台的 `both` 模式不会再启动一个 `--platform both` 子进程，而是分别启动：
+
+```bash
+python scripts/run_sale.py --platform jd --dry-run
+python scripts/run_sale.py --platform dji --dry-run
+```
+
+CLI 仍然保留 `--platform both`，原有命令可以继续使用。
 
 ---
 

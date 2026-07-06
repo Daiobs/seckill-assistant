@@ -23,7 +23,7 @@
     "retry_wait_seconds": 3.0
   },
   "selectors": {
-    "btn_buy_now": ".buy-btn, [data-action='buy'], button[class*='buy'], a[href*='checkout']",
+    "btn_buy_now": ".buy-btn, [data-action='buy'], [class*='buy-now']",
     "btn_add_to_cart": ".add-to-cart, [data-action='add-to-cart'], button[class*='cart']",
     "btn_appointment": ".notify-me, .pre-sale-btn, [data-action='notify'], button[class*='notify']",
     "btn_out_of_stock": ".sold-out, .out-of-stock, button[disabled], [class*='sold-out']",
@@ -31,7 +31,7 @@
     "checkout_submit": ".place-order, .submit-order, [data-action='submit-order'], button[type='submit'], button[class*='submit'], button[class*='place']",
     "order_total": ".total-price, .order-total, [class*='total-price'], [class*='pay-price'], [class*='amount']",
     "price": ".price-value, .product-price, [class*='price']",
-    "captcha_container": "[class*='captcha'], [id*='captcha'], [class*='slider'], [class*='verify']",
+    "captcha_container": "[class*='captcha'], [id*='captcha'], [class*='verify'], iframe[src*='captcha'], iframe[src*='verify']",
     "login_check": ".user-info, .logged-in, [class*='user-avatar'], [class*='account']"
   },
   "purchase": {

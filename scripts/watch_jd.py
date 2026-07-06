@@ -37,12 +37,15 @@ from notify import (
     notify_purchase_success,
     send_notification,
 )
+from runtime_events import emit_event
 from utils import (
     ButtonState,
+    LoginState,
     SeckillState,
     check_captcha,
-    check_login_valid,
     create_browser_context,
+    dismiss_cookie_banner,
+    find_action_element,
     format_countdown,
     load_config,
     seconds_until_sale,
@@ -50,7 +53,9 @@ from utils import (
     smart_sleep,
     take_screenshot,
     validate_order_before_submit,
+    verify_after_submit,
     visible_unavailable_cta,
+    wait_for_login_state,
 )
 
 logger = logging.getLogger("seckill.jd")
@@ -65,33 +70,35 @@ def detect_button_state(page: Page, selectors: dict[str, str]) -> str:
     检测商品页按钮状态。
     优先级：BUY_NOW > ADD_TO_CART > APPOINTMENT > PRESALE > OUT_OF_STOCK > COMING_SOON
     """
-    def _visible(sel: str) -> bool:
-        if not sel:
-            return False
-        try:
-            # 多个选择器用逗号分隔，逐一检测
-            for s in [x.strip() for x in sel.split(",")]:
-                el = page.query_selector(s)
-                if el and el.is_visible() and el.is_enabled():
-                    return True
-        except Exception:  # noqa: BLE001
-            pass
-        return False
+    buy_match = find_action_element(
+        page,
+        selectors,
+        "btn_buy_now",
+        ["立即购买", "立即抢购", "马上抢", "购买"],
+        blocked_texts=["加入购物车", "预约", "到货", "售罄", "无货"],
+    )
+    add_match = find_action_element(
+        page,
+        selectors,
+        "btn_add_to_cart",
+        ["加入购物车", "加购物车"],
+        blocked_texts=["立即购买", "预约", "到货", "售罄", "无货"],
+    )
 
     # 预约
-    if _visible(selectors.get("btn_appointment", "")):
+    if find_action_element(page, selectors, "btn_appointment", ["预约", "到货通知"]):
         return ButtonState.APPOINTMENT
 
     # 预售
-    if _visible(selectors.get("btn_presale", "")):
+    if find_action_element(page, selectors, "btn_presale", ["预售", "定金", "预约"]):
         return ButtonState.PRESALE
 
     # 立即购买
-    if _visible(selectors.get("btn_buy_now", "")):
+    if buy_match:
         return ButtonState.BUY_NOW
 
     # 加入购物车
-    if _visible(selectors.get("btn_add_to_cart", "")):
+    if add_match:
         return ButtonState.ADD_TO_CART
 
     # 无货 / 即将开售（主 CTA 不可点或非交互无货节点）
@@ -130,20 +137,37 @@ def click_buy_button(
         take_screenshot(page, screenshot_dir, tag="dry_run_detected")
         return False
 
-    # 逐一尝试选择器
-    for s in [x.strip() for x in sel.split(",")]:
+    allowed = (
+        ["立即购买", "立即抢购", "马上抢", "购买"]
+        if btn_state == ButtonState.BUY_NOW
+        else ["加入购物车", "加购物车"]
+    )
+    blocked = ["预约", "到货", "售罄", "无货"]
+    match = find_action_element(
+        page,
+        selectors,
+        "btn_buy_now" if btn_state == ButtonState.BUY_NOW else "btn_add_to_cart",
+        allowed,
+        blocked_texts=blocked,
+    )
+    if match:
         try:
-            el = page.query_selector(s)
-            if el and el.is_visible() and el.is_enabled():
-                logger.info("点击按钮：%s (selector: %s)", btn_state, s)
-                take_screenshot(page, screenshot_dir, tag="before_click")
-                el.click()
-                # 等待页面跳转或弹窗
-                page.wait_for_timeout(1500)
-                take_screenshot(page, screenshot_dir, tag="after_click")
-                return True
+            logger.info(
+                '命中购买按钮：platform=jd state=%s selector="%s" text="%s" tag=%s class="%s" id="%s"',
+                btn_state,
+                match["selector"],
+                match["text"],
+                match["tag"],
+                match["class"],
+                match["id"],
+            )
+            take_screenshot(page, screenshot_dir, tag="before_click")
+            match["element"].click()
+            page.wait_for_timeout(1500)
+            take_screenshot(page, screenshot_dir, tag="after_click")
+            return True
         except Exception as exc:  # noqa: BLE001
-            logger.warning("点击选择器 [%s] 失败：%s", s, exc)
+            logger.warning("点击购买按钮失败：%s", exc)
 
     logger.error("所有选择器均点击失败")
     return False
@@ -179,6 +203,7 @@ def handle_checkout_page(
 
     logger.info("已进入结算页：%s", current_url)
     scr_path = take_screenshot(page, screenshot_dir, tag="checkout_page")
+    emit_event("jd", "checkout", "京东已进入结算页", scr_path, {"url": current_url})
     notify_purchase_success(product_name, scr_path, notify_cfg)
 
     if not auto_submit:
@@ -201,7 +226,8 @@ def handle_checkout_page(
     ok, validation_msg = validate_order_before_submit(page, cfg, platform="京东")
     if not ok:
         logger.error("自动提交前校验失败：%s", validation_msg)
-        take_screenshot(page, screenshot_dir, tag="submit_blocked")
+        scr_path = take_screenshot(page, screenshot_dir, tag="submit_blocked")
+        emit_event("jd", "need_human", validation_msg, scr_path, {"url": page.url})
         notify_human_takeover(
             f"自动提交前校验失败，已暂停：{validation_msg}",
             notify_cfg,
@@ -218,22 +244,49 @@ def handle_checkout_page(
                 if el and el.is_visible() and el.is_enabled():
                     logger.info("自动点击提交订单按钮：%s", s)
                     take_screenshot(page, screenshot_dir, tag="before_submit")
+                    emit_event("jd", "checkout", "京东准备自动提交订单", extra={"url": page.url})
                     el.click()
-                    page.wait_for_timeout(3000)
+                    submit_ok, submit_msg = verify_after_submit(page, cfg, platform="京东")
                     after_submit_path = take_screenshot(
                         page, screenshot_dir, tag="after_submit"
                     )
-                    notify_purchase_success(
-                        product_name + "（已自动提交订单）",
-                        after_submit_path,
-                        notify_cfg,
-                    )
+                    logger.info("提交后校验结果：%s", submit_msg)
+                    if submit_ok:
+                        emit_event(
+                            "jd",
+                            "submitted",
+                            submit_msg,
+                            after_submit_path,
+                            {"url": page.url},
+                        )
+                        notify_purchase_success(
+                            product_name + "（已自动提交订单）",
+                            after_submit_path,
+                            notify_cfg,
+                        )
+                    else:
+                        emit_event(
+                            "jd",
+                            "need_human",
+                            submit_msg,
+                            after_submit_path,
+                            {"url": page.url},
+                        )
+                        notify_human_takeover(
+                            f"京东自动提交后结果未确认，已暂停：{submit_msg}",
+                            notify_cfg,
+                        )
+                        input(">>> 请人工确认京东订单状态。处理完成后按 Enter 继续...")
                     return True
             except Exception as exc:  # noqa: BLE001
                 logger.error("自动提交订单失败：%s", exc)
     else:
         logger.error("auto_submit_order=True 但未配置 checkout_submit 选择器")
+        scr_path = take_screenshot(page, screenshot_dir, tag="submit_selector_missing")
+        emit_event("jd", "need_human", "京东未配置提交订单按钮选择器", scr_path, {"url": page.url})
 
+    scr_path = take_screenshot(page, screenshot_dir, tag="submit_button_not_found")
+    emit_event("jd", "need_human", "京东未找到可点击的提交订单按钮", scr_path, {"url": page.url})
     return True
 
 
@@ -294,21 +347,26 @@ def run_watch_loop(cfg: dict[str, Any], dry_run_override: bool = False) -> None:
             # ----------------------------------------------------------------
             logger.info("正在打开商品页：%s", product_url)
             page.goto(product_url, wait_until="domcontentloaded")
-            take_screenshot(page, screenshot_dir, tag="page_open")
+            dismiss_cookie_banner(page, "jd")
+            scr_path = take_screenshot(page, screenshot_dir, tag="page_open")
+            emit_event("jd", "monitoring", "京东商品页已打开", scr_path, {"url": page.url})
 
             # ----------------------------------------------------------------
             # 检查登录状态
             # ----------------------------------------------------------------
-            if not check_login_valid(page, selectors):
+            login_state = wait_for_login_state(page, selectors, "jd", dry_run)
+            if login_state != LoginState.LOGGED_IN:
                 logger.error("检测到未登录或登录失效！")
-                take_screenshot(page, screenshot_dir, tag="login_invalid")
+                scr_path = take_screenshot(page, screenshot_dir, tag="login_invalid")
+                emit_event("jd", "need_human", "京东登录态未知或失效", scr_path, {"url": page.url})
                 notify_human_takeover(
                     "未登录或登录失效，请在浏览器中手动登录后按 Enter 继续",
                     notify_cfg,
                 )
                 input(">>> 请在浏览器中完成登录，然后按 Enter 继续...")
                 page.reload(wait_until="domcontentloaded")
-                take_screenshot(page, screenshot_dir, tag="after_login")
+                scr_path = take_screenshot(page, screenshot_dir, tag="after_login")
+                emit_event("jd", "monitoring", "京东登录处理后继续监控", scr_path, {"url": page.url})
 
             logger.info("登录状态正常，开始监控商品：%s", product_name)
             send_notification(
@@ -335,12 +393,14 @@ def run_watch_loop(cfg: dict[str, Any], dry_run_override: bool = False) -> None:
                         if seckill_state != SeckillState.WARMUP:
                             seckill_state = SeckillState.WARMUP
                             logger.info("进入【预热模式】，距开售 %.0f 秒", secs)
+                            emit_event("jd", "monitoring", "京东进入预热模式", extra={"url": page.url})
                         poll_interval = poll_warmup
                         phase_name = "预热"
                     else:
                         if seckill_state not in (SeckillState.HIGH_FREQ, SeckillState.PURCHASING):
                             seckill_state = SeckillState.HIGH_FREQ
                             logger.info("进入【高频轮询模式】，距开售 %.1f 秒", secs)
+                            emit_event("jd", "monitoring", "京东进入高频轮询", extra={"url": page.url})
                         poll_interval = poll_high
                         phase_name = "高频"
 
@@ -363,9 +423,10 @@ def run_watch_loop(cfg: dict[str, Any], dry_run_override: bool = False) -> None:
                     # --------------------------------------------------------
                     # 检测验证码
                     # --------------------------------------------------------
-                    if check_captcha(page, selectors):
+                    if check_captcha(page, selectors, platform="jd"):
                         logger.warning("检测到验证码/滑块，暂停并通知人工接管")
-                        take_screenshot(page, screenshot_dir, tag="captcha_detected")
+                        scr_path = take_screenshot(page, screenshot_dir, tag="captcha_detected")
+                        emit_event("jd", "need_human", "京东检测到验证码", scr_path, {"url": page.url})
                         notify_human_takeover(
                             "检测到验证码或滑块，请手动完成验证后按 Enter 继续",
                             notify_cfg,
@@ -378,9 +439,11 @@ def run_watch_loop(cfg: dict[str, Any], dry_run_override: bool = False) -> None:
                     # --------------------------------------------------------
                     # 检测登录状态
                     # --------------------------------------------------------
-                    if not check_login_valid(page, selectors):
+                    login_state = wait_for_login_state(page, selectors, "jd", dry_run)
+                    if login_state != LoginState.LOGGED_IN:
                         logger.warning("登录失效，暂停并通知人工接管")
-                        take_screenshot(page, screenshot_dir, tag="login_expired")
+                        scr_path = take_screenshot(page, screenshot_dir, tag="login_expired")
+                        emit_event("jd", "need_human", "京东登录失效或状态未知", scr_path, {"url": page.url})
                         notify_human_takeover(
                             "登录失效，请重新登录后按 Enter 继续",
                             notify_cfg,
@@ -399,7 +462,14 @@ def run_watch_loop(cfg: dict[str, Any], dry_run_override: bool = False) -> None:
 
                     if btn_state in (ButtonState.BUY_NOW, ButtonState.ADD_TO_CART):
                         logger.info("检测到可购买按钮！状态：%s", btn_state)
-                        take_screenshot(page, screenshot_dir, tag="btn_available")
+                        scr_path = take_screenshot(page, screenshot_dir, tag="btn_available")
+                        emit_event(
+                            "jd",
+                            "stock_found",
+                            f"京东检测到可购买按钮：{btn_state}",
+                            scr_path,
+                            {"url": page.url},
+                        )
                         notify_purchase_attempt(product_name, notify_cfg)
 
                         seckill_state = SeckillState.PURCHASING
@@ -463,13 +533,27 @@ def run_watch_loop(cfg: dict[str, Any], dry_run_override: bool = False) -> None:
                         error_count, max_retry, loop_exc,
                         exc_info=True,
                     )
-                    take_screenshot(page, screenshot_dir, tag=f"error_{error_count}")
+                    scr_path = take_screenshot(page, screenshot_dir, tag=f"error_{error_count}")
+                    emit_event(
+                        "jd",
+                        "error",
+                        f"京东轮询异常：{loop_exc}",
+                        scr_path,
+                        {"url": page.url, "error_count": error_count},
+                    )
 
                     if error_count >= max_retry:
                         logger.critical("连续错误次数达到上限 %d，暂停并通知人工接管", max_retry)
                         notify_human_takeover(
                             f"连续错误 {max_retry} 次，最后错误：{loop_exc}",
                             notify_cfg,
+                        )
+                        emit_event(
+                            "jd",
+                            "need_human",
+                            f"京东连续错误 {max_retry} 次",
+                            scr_path,
+                            {"url": page.url},
                         )
                         notify_error(product_name, str(loop_exc), notify_cfg)
                         seckill_state = SeckillState.PAUSED
@@ -481,10 +565,12 @@ def run_watch_loop(cfg: dict[str, Any], dry_run_override: bool = False) -> None:
 
         except KeyboardInterrupt:
             logger.info("脚本已手动停止")
+            emit_event("jd", "stopped", "京东脚本已手动停止")
         except Exception as fatal_exc:  # noqa: BLE001
             logger.critical("致命错误：%s", fatal_exc, exc_info=True)
             try:
-                take_screenshot(page, screenshot_dir, tag="fatal_error")
+                scr_path = take_screenshot(page, screenshot_dir, tag="fatal_error")
+                emit_event("jd", "error", f"京东致命错误：{fatal_exc}", scr_path, {"url": page.url})
                 notify_error(product_name, str(fatal_exc), notify_cfg)
             except Exception:  # noqa: BLE001
                 pass

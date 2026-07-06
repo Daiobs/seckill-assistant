@@ -17,11 +17,18 @@ from zoneinfo import ZoneInfo
 
 from playwright.sync_api import (
     BrowserContext,
+    ElementHandle,
     Page,
     Playwright,
 )
 
 _login_check_missing_warned: list[bool] = [False]
+
+
+class LoginState:
+    LOGGED_IN = "logged_in"
+    LOGGED_OUT = "logged_out"
+    UNKNOWN = "unknown"
 
 # ---------------------------------------------------------------------------
 # 日志初始化
@@ -234,7 +241,46 @@ def visible_unavailable_cta(page: Page, sel: str) -> bool:
 # 检测验证码 / 登录失效
 # ---------------------------------------------------------------------------
 
-def check_captcha(page: Page, selectors: dict[str, str]) -> bool:
+def _selector_list(selector_text: str) -> list[str]:
+    return [item.strip() for item in selector_text.split(",") if item.strip()]
+
+
+def _element_summary(el: ElementHandle) -> dict[str, Any]:
+    try:
+        tag = el.evaluate("e => e.tagName.toLowerCase()")
+    except Exception:  # noqa: BLE001
+        tag = ""
+    try:
+        text = el.inner_text(timeout=1000).strip()
+    except Exception:  # noqa: BLE001
+        text = ""
+    try:
+        attrs = el.evaluate(
+            """e => ({
+                id: e.id || "",
+                className: typeof e.className === "string" ? e.className : "",
+                src: e.getAttribute("src") || "",
+                disabled: !!e.disabled
+            })"""
+        )
+    except Exception:  # noqa: BLE001
+        attrs = {"id": "", "className": "", "src": "", "disabled": False}
+    try:
+        box = el.bounding_box()
+    except Exception:  # noqa: BLE001
+        box = None
+    return {
+        "tag": tag,
+        "text": text,
+        "id": attrs.get("id", ""),
+        "class": attrs.get("className", ""),
+        "src": attrs.get("src", ""),
+        "disabled": bool(attrs.get("disabled", False)),
+        "bbox": box,
+    }
+
+
+def check_captcha(page: Page, selectors: dict[str, str], platform: str = "") -> bool:
     """
     检测页面是否出现验证码或滑块。
     返回 True 表示检测到，需要人工接管。
@@ -242,19 +288,48 @@ def check_captcha(page: Page, selectors: dict[str, str]) -> bool:
     captcha_sel = selectors.get("captcha_container", "")
     if not captcha_sel:
         return False
+    logger = logging.getLogger("seckill.utils")
+    keywords = ("验证", "滑动验证", "安全验证", "captcha", "verify")
     try:
-        el = page.query_selector(captcha_sel)
-        if el and el.is_visible():
-            return True
+        for selector in _selector_list(captcha_sel):
+            for el in page.query_selector_all(selector)[:5]:
+                if not el.is_visible():
+                    continue
+                summary = _element_summary(el)
+                text = summary["text"][:300]
+                class_id = f"{summary['class']} {summary['id']} {summary['src']}".lower()
+                haystack = f"{text} {class_id}".lower()
+                box = summary["bbox"] or {}
+                width = float(box.get("width", 0) or 0)
+                height = float(box.get("height", 0) or 0)
+                x = float(box.get("x", 0) or 0)
+                y = float(box.get("y", 0) or 0)
+                has_keyword = any(keyword.lower() in haystack for keyword in keywords)
+                iframe_match = summary["tag"] == "iframe" and has_keyword
+                overlay_like = width >= 220 and height >= 80 and y < 700
+                centered = 120 <= x <= 900 or width >= 480
+                if iframe_match or (has_keyword and overlay_like and centered):
+                    logger.warning(
+                        '[CAPTCHA] platform=%s selector="%s" tag=%s text="%s" class="%s" id="%s" url=%s',
+                        platform,
+                        selector,
+                        summary["tag"],
+                        text[:100],
+                        summary["class"],
+                        summary["id"],
+                        page.url,
+                    )
+                    return True
     except Exception:  # noqa: BLE001
         pass
     return False
 
 
-def check_login_valid(page: Page, selectors: dict[str, str]) -> bool:
+def detect_login_state(page: Page, selectors: dict[str, str], platform: str = "") -> str:
     """
-    检测当前登录状态是否有效。
-    返回 True 表示已登录，False 表示未登录或登录失效。
+    Conservative login-state detection.
+
+    返回 LoginState.LOGGED_IN / LOGGED_OUT / UNKNOWN。
     """
     login_sel = selectors.get("login_check", "")
     if not login_sel:
@@ -264,18 +339,167 @@ def check_login_valid(page: Page, selectors: dict[str, str]) -> bool:
                 " 请在 config/*.json 的 selectors 中配置 login_check（见 README）。"
             )
             _login_check_missing_warned[0] = True
-        return True
+        return LoginState.UNKNOWN
+    logger = logging.getLogger("seckill.utils")
+    logged_out_keywords = (
+        "请登录",
+        "立即登录",
+        "sign in",
+        "login",
+        "重新登录",
+        "未登录",
+    )
+    logged_in_keywords = (
+        "我的",
+        "账号",
+        "账户",
+        "会员",
+        "用户",
+        "nickname",
+        "account",
+        "avatar",
+        "退出",
+        "logout",
+    )
     try:
-        el = page.query_selector(login_sel)
-        if el:
-            text = el.inner_text().strip()
-            # 京东：未登录时显示"请登录"，已登录时显示昵称
-            if "请登录" in text or "登录" == text:
-                return False
-            return True
+        for selector in _selector_list(login_sel):
+            for el in page.query_selector_all(selector)[:5]:
+                if not el.is_visible():
+                    continue
+                summary = _element_summary(el)
+                text = summary["text"].strip()
+                text_lower = text.lower()
+                marker = f"{text} {summary['class']} {summary['id']}".lower()
+                explicit_logged_out = any(
+                    keyword.lower() in text_lower
+                    for keyword in logged_out_keywords
+                    if keyword.lower() not in ("login",)
+                )
+                explicit_logged_out = explicit_logged_out or text_lower in ("登录", "login")
+                if explicit_logged_out:
+                    logger.info("登录态检测：platform=%s selector=%s -> logged_out", platform, selector)
+                    return LoginState.LOGGED_OUT
+                if text or summary["class"] or summary["id"]:
+                    if any(keyword.lower() in marker for keyword in logged_in_keywords):
+                        logger.info("登录态检测：platform=%s selector=%s -> logged_in", platform, selector)
+                        return LoginState.LOGGED_IN
+                    if len(text) >= 2 and text not in ("-", "..."):
+                        return LoginState.LOGGED_IN
     except Exception:  # noqa: BLE001
-        pass
-    return True
+        return LoginState.UNKNOWN
+
+    body = _page_text(page)
+    body_lower = body.lower()
+    if any(keyword.lower() in body_lower for keyword in ("请登录", "登录后", "sign in", "login")):
+        return LoginState.LOGGED_OUT
+    return LoginState.UNKNOWN
+
+
+def check_login_valid(page: Page, selectors: dict[str, str]) -> bool:
+    """
+    Backward-compatible login check.
+
+    Only explicit logged-in state is valid; unknown is treated as invalid so live
+    purchase flows pause instead of assuming success.
+    """
+    return detect_login_state(page, selectors) == LoginState.LOGGED_IN
+
+
+def wait_for_login_state(
+    page: Page,
+    selectors: dict[str, str],
+    platform: str,
+    dry_run: bool,
+    attempts: int = 3,
+) -> str:
+    """Retry conservative login detection and apply dry-run tolerance."""
+    logger = logging.getLogger("seckill.utils")
+    state = LoginState.UNKNOWN
+    for index in range(attempts):
+        state = detect_login_state(page, selectors, platform=platform)
+        if state != LoginState.UNKNOWN:
+            return state
+        if index < attempts - 1:
+            page.wait_for_timeout(1000)
+    if dry_run:
+        logger.warning("登录态未知，dry-run 允许继续；实战模式会暂停")
+        return LoginState.LOGGED_IN
+    return state
+
+
+def _text_matches(text: str, allowed_texts: list[str], blocked_texts: list[str]) -> bool:
+    normalized = re.sub(r"\s+", " ", text or "").strip().lower()
+    if not normalized:
+        return False
+    if any(blocked.lower() in normalized for blocked in blocked_texts):
+        return False
+    return any(allowed.lower() in normalized for allowed in allowed_texts)
+
+
+def find_action_element(
+    page: Page,
+    selectors: dict[str, str],
+    selector_key: str,
+    allowed_texts: list[str],
+    blocked_texts: list[str] | None = None,
+) -> dict[str, Any] | None:
+    """Find a visible enabled CTA whose text is explicitly allowed."""
+    blocked = blocked_texts or []
+    selector_text = selectors.get(selector_key, "")
+    for selector in _selector_list(selector_text):
+        try:
+            for el in page.query_selector_all(selector)[:10]:
+                if not el.is_visible() or not el.is_enabled():
+                    continue
+                summary = _element_summary(el)
+                if _text_matches(summary["text"], allowed_texts, blocked):
+                    return {"element": el, "selector": selector, **summary}
+        except Exception:  # noqa: BLE001
+            continue
+
+    for text in allowed_texts:
+        try:
+            locator = page.get_by_text(text, exact=False).first
+            if locator and locator.is_visible() and locator.is_enabled():
+                handle = locator.element_handle()
+                if not handle:
+                    continue
+                summary = _element_summary(handle)
+                if _text_matches(summary["text"], allowed_texts, blocked):
+                    return {"element": handle, "selector": f"text={text}", **summary}
+        except Exception:  # noqa: BLE001
+            continue
+    return None
+
+
+def dismiss_cookie_banner(page: Page, platform: str) -> bool:
+    """Try to close or accept a cookie/privacy banner once without interrupting flow."""
+    logger = logging.getLogger("seckill.utils")
+    texts = ("Accept All Cookies", "Accept All", "同意", "接受", "我知道了")
+    close_selectors = (
+        "button[aria-label*='close']",
+        "button[aria-label*='Close']",
+        ".cookie button[class*='close']",
+        "[class*='cookie'] button",
+    )
+    try:
+        for text in texts:
+            locator = page.get_by_text(text, exact=False).first
+            if locator and locator.is_visible() and locator.is_enabled():
+                logger.info("尝试关闭 Cookie 弹窗：platform=%s text=%s", platform, text)
+                locator.click()
+                page.wait_for_timeout(500)
+                return True
+        for selector in close_selectors:
+            el = page.query_selector(selector)
+            if el and el.is_visible() and el.is_enabled():
+                logger.info("尝试关闭 Cookie 弹窗：platform=%s selector=%s", platform, selector)
+                el.click()
+                page.wait_for_timeout(500)
+                return True
+    except Exception as exc:  # noqa: BLE001
+        logger.info("Cookie 弹窗处理失败但不影响主流程：platform=%s error=%s", platform, exc)
+    return False
 
 
 # ---------------------------------------------------------------------------
@@ -381,6 +605,71 @@ def validate_order_before_submit(
     if total is None:
         return True, f"{platform} 商品关键词校验通过，未配置金额强制识别"
     return True, f"{platform} 商品关键词校验通过，订单金额 {total:.2f}"
+
+
+def verify_after_submit(page: Page, cfg: dict[str, Any], platform: str) -> tuple[bool, str]:
+    """
+    Verify whether an order submit actually succeeded.
+
+    Unknown and human-required states intentionally return False so callers can
+    pause instead of reporting a false success.
+    """
+    try:
+        page.wait_for_timeout(3000)
+        page.wait_for_load_state("domcontentloaded", timeout=7000)
+    except Exception:  # noqa: BLE001
+        pass
+
+    current_url = page.url.lower()
+    body_text = _page_text(page)
+    body_lower = body_text.lower()
+    success_url_keywords = ("payment", "pay", "cashier", "success", "order")
+    success_text_keywords = (
+        "订单提交成功",
+        "提交成功",
+        "去支付",
+        "收银台",
+        "订单号",
+        "支付",
+        "payment",
+        "cashier",
+    )
+    failure_keywords = (
+        "验证码",
+        "安全验证",
+        "风险",
+        "异常",
+        "失败",
+        "失效",
+        "请重试",
+        "库存不足",
+        "已售罄",
+        "登录",
+        "短信验证",
+        "二次确认",
+    )
+
+    for keyword in failure_keywords:
+        if keyword.lower() in body_lower:
+            return False, f"{platform} 提交后需要人工处理：页面出现“{keyword}”"
+
+    if any(keyword in current_url for keyword in success_url_keywords):
+        return True, f"{platform} 提交后进入支付/订单相关页面：{page.url}"
+
+    for keyword in success_text_keywords:
+        if keyword.lower() in body_lower:
+            return True, f"{platform} 提交成功：页面出现“{keyword}”"
+
+    submit_selectors = cfg.get("selectors", {}).get("checkout_submit", "")
+    for selector in _selector_list(submit_selectors):
+        try:
+            el = page.query_selector(selector)
+            if el and el.is_visible():
+                return False, f"{platform} 提交结果未知：仍停留在提交按钮所在页面"
+        except Exception:  # noqa: BLE001
+            continue
+
+    return False, f"{platform} 提交结果未知：未识别到支付页或成功提示"
 
 
 # ---------------------------------------------------------------------------

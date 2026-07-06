@@ -10,7 +10,7 @@
     <header class="topbar">
       <div>
         <h1>Pocket 4P 本地抢购控制台</h1>
-        <p>仅监听本机，封装现有 CLI，不处理验证码和支付确认。</p>
+        <p>仅监听本机，分平台管理 JD 与 DJI 子进程，验证码和支付仍需人工确认。</p>
       </div>
       <div class="status-card">
         <span class="label">当前状态</span>
@@ -22,10 +22,30 @@
       <section class="panel">
         <h2>运行状态</h2>
         <div class="status-grid">
-          <div><span>平台</span><strong id="runtimePlatform">-</strong></div>
+          <div><span>聚合平台</span><strong id="runtimePlatform">-</strong></div>
           <div><span>模式</span><strong id="runtimeMode">-</strong></div>
           <div><span>PID</span><strong id="runtimePid">-</strong></div>
           <div><span>登录检查 PID</span><strong id="loginPid">-</strong></div>
+        </div>
+        <div class="job-grid">
+          <div class="job-card" id="jobJd">
+            <div class="job-head">
+              <span>京东</span>
+              <strong id="jdStatus">等待</strong>
+            </div>
+            <p>PID：<span id="jdPid">-</span></p>
+            <p>模式：<span id="jdMode">-</span></p>
+            <p>等待人工：<span id="jdHuman">否</span></p>
+          </div>
+          <div class="job-card" id="jobDji">
+            <div class="job-head">
+              <span>DJI</span>
+              <strong id="djiStatus">等待</strong>
+            </div>
+            <p>PID：<span id="djiPid">-</span></p>
+            <p>模式：<span id="djiMode">-</span></p>
+            <p>等待人工：<span id="djiHuman">否</span></p>
+          </div>
         </div>
         <p id="lastError" class="error-text"></p>
       </section>
@@ -84,9 +104,23 @@
         <h2>操作</h2>
         <div class="actions primary-actions">
           <button id="startMonitor" type="button" class="primary">开始监控</button>
-          <button id="stopMonitor" type="button" class="danger">停止监控</button>
+          <button id="stopMonitor" type="button" class="danger">全部停止</button>
+          <button id="stopJd" type="button">停止 JD</button>
+          <button id="stopDji" type="button">停止 DJI</button>
+          <button id="continueJd" type="button">继续 JD</button>
+          <button id="continueDji" type="button">继续 DJI</button>
+          <button id="continueAll" type="button">全部继续</button>
         </div>
         <p class="hint">实战模式会要求输入“我确认”，并展示商品链接、金额上限、关键词和开售时间。</p>
+      </section>
+
+      <section class="panel">
+        <h2>页面诊断</h2>
+        <div class="actions">
+          <button id="diagnoseJd" type="button">诊断京东页面</button>
+          <button id="diagnoseDji" type="button">诊断 DJI 页面</button>
+        </div>
+        <pre id="diagnosisOutput" class="diagnosis-output">暂无诊断结果</pre>
       </section>
 
       <section class="panel logs-panel">
@@ -127,4 +161,3 @@
     <script src="/static/app.js"></script>
   </body>
 </html>
-

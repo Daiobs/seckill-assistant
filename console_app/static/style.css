@@ -104,6 +104,44 @@ h2 {
   overflow-wrap: anywhere;
 }
 
+.job-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.job-card {
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #f8fafc;
+}
+
+.job-card.is-running {
+  border-color: #93c5fd;
+}
+
+.job-card.needs-human,
+button.needs-human {
+  border-color: var(--danger);
+  box-shadow: 0 0 0 2px rgb(180 35 24 / 12%);
+}
+
+.job-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.job-card p {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
 .switch-row,
 .actions,
 .panel-head {
@@ -201,6 +239,19 @@ button:hover {
   white-space: pre-wrap;
 }
 
+.diagnosis-output {
+  min-height: 220px;
+  max-height: 360px;
+  overflow: auto;
+  padding: 12px;
+  margin: 12px 0 0;
+  background: #f8fafc;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  font-size: 12px;
+  white-space: pre-wrap;
+}
+
 .screenshot-panel img {
   display: block;
   width: 100%;
@@ -269,8 +320,8 @@ dialog::backdrop {
   }
 
   .status-grid,
+  .job-grid,
   .two-col {
     grid-template-columns: 1fr;
   }
 }
-
