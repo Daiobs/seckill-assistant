@@ -42,7 +42,7 @@
       "Pocket",
       "4P"
     ],
-    "max_order_total_cny": 4500,
+    "max_order_total_cny": 4500.0,
     "require_total_detected": true,
     "quantity": 1,
     "buy_now_flow": true,
