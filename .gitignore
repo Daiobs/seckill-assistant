@@ -8,6 +8,9 @@ logs/*.log
 screenshots/*.png
 screenshots/*.jpg
 
+# 本地控制台运行状态、诊断结果与临时 profile
+.runtime/
+
 # Python
 __pycache__/
 *.py[cod]

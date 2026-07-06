@@ -251,7 +251,7 @@ def _element_summary(el: ElementHandle) -> dict[str, Any]:
     except Exception:  # noqa: BLE001
         tag = ""
     try:
-        text = el.inner_text(timeout=1000).strip()
+        text = el.evaluate("e => (e.innerText || e.textContent || '').trim()")
     except Exception:  # noqa: BLE001
         text = ""
     try:

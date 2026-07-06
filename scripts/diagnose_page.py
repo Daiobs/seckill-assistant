@@ -59,7 +59,7 @@ def _candidate(page: Page, selector: str) -> list[dict[str, Any]]:
             records.append(
                 {
                     "selector": selector,
-                    "text": el.inner_text(timeout=1000).strip()[:200],
+                    "text": el.evaluate("e => (e.innerText || e.textContent || '').trim()")[:200],
                     "visible": el.is_visible(),
                     "enabled": el.is_enabled(),
                     "tag": attrs.get("tag", ""),
