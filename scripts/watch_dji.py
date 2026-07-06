@@ -46,6 +46,7 @@ from utils import (
     setup_logging,
     smart_sleep,
     take_screenshot,
+    validate_order_before_submit,
     visible_unavailable_cta,
 )
 
@@ -188,17 +189,39 @@ def handle_dji_checkout(
 ) -> bool:
     """处理大疆官网结算页"""
     purchase_cfg = cfg.get("purchase", {})
+    selectors = cfg.get("selectors", {})
     notify_cfg = cfg.get("notify", {})
     product_name = cfg.get("product", {}).get("name", "未知商品")
     auto_submit = purchase_cfg.get("auto_submit_order", False)
 
     current_url = page.url
+    is_cart = "cart" in current_url
     is_checkout = any(kw in current_url for kw in [
-        "checkout", "cart", "order", "payment", "store.dji.com/cn/cart",
+        "checkout", "order", "payment",
     ])
 
+    if is_cart:
+        logger.info("大疆：已进入购物车页，尝试进入结算：%s", current_url)
+        take_screenshot(page, screenshot_dir, tag="dji_cart_page")
+        cart_checkout_sel = selectors.get(
+            "cart_checkout",
+            ".checkout-btn, [data-action='checkout'], button[class*='checkout']",
+        )
+        for s in [x.strip() for x in cart_checkout_sel.split(",")]:
+            try:
+                el = page.query_selector(s)
+                if el and el.is_visible() and el.is_enabled():
+                    logger.info("大疆：点击购物车去结算：%s", s)
+                    el.click()
+                    page.wait_for_timeout(3000)
+                    break
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("大疆：购物车结算按钮 [%s] 点击失败：%s", s, exc)
+        current_url = page.url
+        is_checkout = any(kw in current_url for kw in ["checkout", "order", "payment"])
+
     if not is_checkout:
-        logger.info("大疆：当前 URL 不是结算页：%s", current_url)
+        logger.info("大疆：当前 URL 不是最终结算页：%s", current_url)
         return False
 
     logger.info("大疆：已进入结算/购物车页：%s", current_url)
@@ -220,7 +243,18 @@ def handle_dji_checkout(
         return True
 
     # 自动提交
-    selectors = cfg.get("selectors", {})
+    ok, validation_msg = validate_order_before_submit(page, cfg, platform="大疆官网")
+    if not ok:
+        logger.error("大疆：自动提交前校验失败：%s", validation_msg)
+        take_screenshot(page, screenshot_dir, tag="dji_submit_blocked")
+        notify_human_takeover(
+            f"大疆官网自动提交前校验失败，已暂停：{validation_msg}",
+            notify_cfg,
+        )
+        input(">>> 请人工核对大疆订单页。处理完成后按 Enter 退出自动提交流程...")
+        return True
+
+    logger.info("大疆：自动提交前校验通过：%s", validation_msg)
     submit_sel = selectors.get("checkout_submit", "")
     if submit_sel:
         for s in [x.strip() for x in submit_sel.split(",")]:
@@ -231,7 +265,12 @@ def handle_dji_checkout(
                     take_screenshot(page, screenshot_dir, tag="dji_before_submit")
                     el.click()
                     page.wait_for_timeout(3000)
-                    take_screenshot(page, screenshot_dir, tag="dji_after_submit")
+                    after_submit_path = take_screenshot(page, screenshot_dir, tag="dji_after_submit")
+                    notify_purchase_success(
+                        product_name + "（大疆官网已自动提交订单）",
+                        after_submit_path,
+                        notify_cfg,
+                    )
                     return True
             except Exception as exc:  # noqa: BLE001
                 logger.error("大疆：自动提交失败：%s", exc)
@@ -347,6 +386,20 @@ def run_watch_loop_dji(cfg: dict[str, Any], dry_run_override: bool = False) -> N
                         notify_human_takeover("大疆官网检测到验证码，请手动完成后按 Enter 继续", notify_cfg)
                         seckill_state = SeckillState.PAUSED
                         input(">>> 请手动完成验证，然后按 Enter 继续...")
+                        seckill_state = SeckillState.HIGH_FREQ
+                        continue
+
+                    if not check_login_valid(page, selectors):
+                        logger.warning("大疆：登录失效，暂停并通知人工接管")
+                        take_screenshot(page, screenshot_dir, tag="dji_login_expired")
+                        notify_human_takeover(
+                            "大疆官网登录失效，请重新登录后按 Enter 继续",
+                            notify_cfg,
+                        )
+                        seckill_state = SeckillState.PAUSED
+                        input(">>> 请重新登录大疆账号，然后按 Enter 继续...")
+                        page.reload(wait_until="domcontentloaded")
+                        page.wait_for_timeout(2000)
                         seckill_state = SeckillState.HIGH_FREQ
                         continue
 

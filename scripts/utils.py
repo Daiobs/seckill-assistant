@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import sys
 import time
 from datetime import datetime
@@ -275,6 +276,111 @@ def check_login_valid(page: Page, selectors: dict[str, str]) -> bool:
     except Exception:  # noqa: BLE001
         pass
     return True
+
+
+# ---------------------------------------------------------------------------
+# 自动提交前的订单校验
+# ---------------------------------------------------------------------------
+
+def _page_text(page: Page) -> str:
+    """读取页面可见文本；失败时返回空字符串。"""
+    try:
+        return page.locator("body").inner_text(timeout=3000)
+    except Exception:  # noqa: BLE001
+        return ""
+
+
+def _parse_cny_amount(text: str) -> float | None:
+    """从一段文本中提取人民币金额。"""
+    normalized = text.replace(",", "").replace("，", "")
+    match = re.search(r"(?:¥|￥|CNY|RMB)?\s*([0-9]{2,6}(?:\.[0-9]{1,2})?)", normalized)
+    if not match:
+        return None
+    try:
+        return float(match.group(1))
+    except ValueError:
+        return None
+
+
+def extract_order_total(page: Page, selectors: dict[str, str]) -> float | None:
+    """
+    尝试从结算页提取订单应付金额。
+    优先使用配置中的 order_total 选择器；失败后在页面文本中查找应付/合计附近的金额。
+    """
+    order_total_sel = selectors.get("order_total", "")
+    if order_total_sel:
+        for sel in [x.strip() for x in order_total_sel.split(",")]:
+            if not sel:
+                continue
+            try:
+                el = page.query_selector(sel)
+                if el and el.is_visible():
+                    amount = _parse_cny_amount(el.inner_text())
+                    if amount is not None:
+                        return amount
+            except Exception:  # noqa: BLE001
+                pass
+
+    text = _page_text(page)
+    if not text:
+        return None
+
+    patterns = [
+        r"(?:应付|实付|需支付|待支付|订单总额|商品总额|合计|总计)[^\n\r¥￥0-9]{0,20}(?:¥|￥)?\s*([0-9]{2,6}(?:\.[0-9]{1,2})?)",
+        r"(?:¥|￥)\s*([0-9]{2,6}(?:\.[0-9]{1,2})?)",
+    ]
+    amounts: list[float] = []
+    for pattern in patterns:
+        for match in re.finditer(pattern, text):
+            try:
+                amounts.append(float(match.group(1).replace(",", "")))
+            except ValueError:
+                continue
+        if amounts:
+            break
+
+    return max(amounts) if amounts else None
+
+
+def validate_order_before_submit(
+    page: Page,
+    cfg: dict[str, Any],
+    platform: str,
+) -> tuple[bool, str]:
+    """
+    自动提交订单前做硬性校验。
+    通过时返回 (True, message)，失败时返回 (False, reason)。
+    """
+    purchase_cfg = cfg.get("purchase", {})
+    selectors = cfg.get("selectors", {})
+    product_cfg = cfg.get("product", {})
+
+    body_text = _page_text(page)
+    body_text_lower = body_text.lower()
+    required_keywords = purchase_cfg.get("require_order_keywords")
+    if required_keywords is None:
+        required_keywords = product_cfg.get("required_keywords", [])
+
+    missing = [
+        keyword for keyword in required_keywords
+        if str(keyword).lower() not in body_text_lower
+    ]
+    if missing:
+        return False, f"{platform} 订单页缺少商品关键词：{', '.join(map(str, missing))}"
+
+    total = extract_order_total(page, selectors)
+    max_total = purchase_cfg.get("max_order_total_cny")
+    require_total_detected = purchase_cfg.get("require_total_detected", True)
+
+    if require_total_detected and total is None:
+        return False, f"{platform} 未能识别订单金额，已阻止自动提交"
+
+    if total is not None and max_total is not None and total > float(max_total):
+        return False, f"{platform} 订单金额 {total:.2f} 超过上限 {float(max_total):.2f}"
+
+    if total is None:
+        return True, f"{platform} 商品关键词校验通过，未配置金额强制识别"
+    return True, f"{platform} 商品关键词校验通过，订单金额 {total:.2f}"
 
 
 # ---------------------------------------------------------------------------

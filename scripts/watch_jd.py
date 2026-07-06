@@ -49,6 +49,7 @@ from utils import (
     setup_logging,
     smart_sleep,
     take_screenshot,
+    validate_order_before_submit,
     visible_unavailable_cta,
 )
 
@@ -77,14 +78,6 @@ def detect_button_state(page: Page, selectors: dict[str, str]) -> str:
             pass
         return False
 
-    # 立即购买（最高优先级）
-    if _visible(selectors.get("btn_buy_now", "")):
-        return ButtonState.BUY_NOW
-
-    # 加入购物车
-    if _visible(selectors.get("btn_add_to_cart", "")):
-        return ButtonState.ADD_TO_CART
-
     # 预约
     if _visible(selectors.get("btn_appointment", "")):
         return ButtonState.APPOINTMENT
@@ -92,6 +85,14 @@ def detect_button_state(page: Page, selectors: dict[str, str]) -> str:
     # 预售
     if _visible(selectors.get("btn_presale", "")):
         return ButtonState.PRESALE
+
+    # 立即购买
+    if _visible(selectors.get("btn_buy_now", "")):
+        return ButtonState.BUY_NOW
+
+    # 加入购物车
+    if _visible(selectors.get("btn_add_to_cart", "")):
+        return ButtonState.ADD_TO_CART
 
     # 无货 / 即将开售（主 CTA 不可点或非交互无货节点）
     if visible_unavailable_cta(page, selectors.get("btn_out_of_stock", "")):
@@ -197,6 +198,18 @@ def handle_checkout_page(
 
     # auto_submit_order=True：自动提交订单
     logger.warning("auto_submit_order=True，将自动提交订单！")
+    ok, validation_msg = validate_order_before_submit(page, cfg, platform="京东")
+    if not ok:
+        logger.error("自动提交前校验失败：%s", validation_msg)
+        take_screenshot(page, screenshot_dir, tag="submit_blocked")
+        notify_human_takeover(
+            f"自动提交前校验失败，已暂停：{validation_msg}",
+            notify_cfg,
+        )
+        input(">>> 请人工核对订单页。处理完成后按 Enter 退出自动提交流程...")
+        return True
+
+    logger.info("自动提交前校验通过：%s", validation_msg)
     submit_sel = selectors.get("checkout_submit", "")
     if submit_sel:
         for s in [x.strip() for x in submit_sel.split(",")]:
@@ -499,9 +512,15 @@ def _go_to_cart_checkout(
 
         # 全选商品
         select_all = page.query_selector("#select-all, .cart-checkbox-all")
-        if select_all and not select_all.is_checked():
-            select_all.click()
-            page.wait_for_timeout(500)
+        if select_all:
+            checked = False
+            try:
+                checked = bool(select_all.evaluate("el => !!el.checked || el.classList.contains('checked')"))
+            except Exception:  # noqa: BLE001
+                checked = False
+            if not checked:
+                select_all.click()
+                page.wait_for_timeout(500)
 
         # 点击去结算
         checkout_btn = page.query_selector(

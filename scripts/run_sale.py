@@ -16,8 +16,11 @@ run_sale.py — 抢购助手统一入口
 from __future__ import annotations
 
 import argparse
+import importlib
 import logging
 import sys
+import threading
+import traceback
 from pathlib import Path
 
 _SCRIPTS_DIR = Path(__file__).parent.resolve()
@@ -46,6 +49,12 @@ PLATFORM_MAP = {
         "module": None,
         "runner": None,
         "description": "拼多多（配置框架预留，暂未实现）",
+    },
+    "both": {
+        "default_config": None,
+        "module": None,
+        "runner": None,
+        "description": "京东 + 大疆官网并行监控",
     },
 }
 
@@ -124,6 +133,84 @@ def cmd_test_notify(cfg: dict) -> None:
     print("✅ 测试通知已发送，请检查各通知渠道")
 
 
+def _resolve_config_path(platform: str, override: str | None = None) -> str:
+    if override:
+        return override
+    default_config = PLATFORM_MAP[platform]["default_config"]
+    if default_config is None:
+        raise ValueError(f"平台 {platform} 没有单一默认配置")
+    return str(_PROJECT_ROOT / default_config)
+
+
+def _load_platform_config(platform: str, override: str | None = None) -> dict:
+    return load_config(_resolve_config_path(platform, override))
+
+
+def _run_platform_runner(
+    platform: str,
+    cfg: dict,
+    dry_run_override: bool,
+    errors: list[str],
+) -> None:
+    try:
+        platform_info = PLATFORM_MAP[platform]
+        module = importlib.import_module(platform_info["module"])
+        runner_func = getattr(module, platform_info["runner"])
+        logger.info("启动平台 [%s] 监控循环", platform)
+        runner_func(cfg, dry_run_override=dry_run_override)
+    except Exception as exc:  # noqa: BLE001
+        tb = traceback.format_exc()
+        logger.error("平台 [%s] 监控线程异常：%s\n%s", platform, exc, tb)
+        errors.append(f"{platform}: {exc}")
+
+
+def run_both_platforms(args: argparse.Namespace) -> None:
+    """并行运行京东与大疆官网监控。"""
+    jd_cfg = _load_platform_config("jd", args.jd_config)
+    dji_cfg = _load_platform_config("dji", args.dji_config)
+
+    if args.no_dry_run:
+        jd_cfg.setdefault("purchase", {})["dry_run"] = False
+        dji_cfg.setdefault("purchase", {})["dry_run"] = False
+        logger.warning("⚠️  --no-dry-run 已指定，两个平台都将执行真实购买操作！")
+
+    dry_run_override = bool(args.dry_run)
+    _print_banner("jd", jd_cfg, dry_run_override or jd_cfg.get("purchase", {}).get("dry_run", True))
+    _print_banner("dji", dji_cfg, dry_run_override or dji_cfg.get("purchase", {}).get("dry_run", True))
+
+    if args.check_login:
+        cmd_check_login(jd_cfg, "jd")
+        cmd_check_login(dji_cfg, "dji")
+        return
+
+    if args.test_notify:
+        cmd_test_notify(jd_cfg)
+        cmd_test_notify(dji_cfg)
+        return
+
+    errors: list[str] = []
+    threads = [
+        threading.Thread(
+            target=_run_platform_runner,
+            args=("jd", jd_cfg, dry_run_override, errors),
+            name="seckill-jd",
+        ),
+        threading.Thread(
+            target=_run_platform_runner,
+            args=("dji", dji_cfg, dry_run_override, errors),
+            name="seckill-dji",
+        ),
+    ]
+
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    if errors:
+        raise RuntimeError("; ".join(errors))
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="个人新品抢购助手 — DJI Pocket 4",
@@ -132,6 +219,7 @@ def main() -> None:
 平台选项：
   jd    京东（MVP，推荐）
   dji   大疆官网
+  both  京东 + 大疆官网并行监控
   pdd   拼多多（配置框架预留，暂未实现）
 
 示例：
@@ -143,6 +231,9 @@ def main() -> None:
 
   # 大疆官网 dry-run
   python scripts/run_sale.py --platform dji --dry-run
+
+  # 京东 + 大疆官网并行实战
+  python scripts/run_sale.py --platform both --no-dry-run
 
   # 检查京东登录状态
   python scripts/run_sale.py --platform jd --check-login
@@ -163,7 +254,17 @@ def main() -> None:
     parser.add_argument(
         "--config", "-c",
         default=None,
-        help="配置文件路径（不指定则使用平台默认配置）",
+        help="单平台配置文件路径（不指定则使用平台默认配置）",
+    )
+    parser.add_argument(
+        "--jd-config",
+        default=None,
+        help="both 模式下京东配置文件路径",
+    )
+    parser.add_argument(
+        "--dji-config",
+        default=None,
+        help="both 模式下大疆官网配置文件路径",
     )
     parser.add_argument(
         "--dry-run",
@@ -199,11 +300,14 @@ def main() -> None:
     args = parser.parse_args()
     platform = args.platform
 
+    if platform == "both":
+        log_level = args.log_level or "INFO"
+        setup_logging(log_dir=str(_PROJECT_ROOT / "logs"), log_level=log_level, platform="both")
+        run_both_platforms(args)
+        return
+
     # 确定配置文件路径
-    if args.config:
-        config_path = args.config
-    else:
-        config_path = str(_PROJECT_ROOT / PLATFORM_MAP[platform]["default_config"])
+    config_path = _resolve_config_path(platform, args.config)
 
     # 加载配置
     try:
@@ -248,7 +352,6 @@ def main() -> None:
         sys.exit(1)
 
     # 动态导入并运行对应平台的监控循环
-    import importlib
     module = importlib.import_module(platform_info["module"])
     runner_func = getattr(module, platform_info["runner"])
 

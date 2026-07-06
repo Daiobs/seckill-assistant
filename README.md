@@ -5,7 +5,7 @@
 [![Playwright](https://img.shields.io/badge/playwright-Chromium-45ba4b.svg)](https://playwright.dev/python/)
 
 **Personal Playwright helper** for timed product checks on JD.com and DJI Store (China).  
-基于 **Python** 与 **Playwright** 的本地自动化脚本：可配置开售时间、轮询策略与页面选择器，默认 **Dry-Run** 与 **结算页人工支付**，降低误下单风险。
+基于 **Python** 与 **Playwright** 的本地自动化脚本：可配置开售时间、轮询策略、页面选择器与自动提交前校验。当前本地配置已改为 **Osmo Pocket 4P**，支持京东与大疆官网并行监控。
 
 > **免责声明**：仅供个人学习与自用；禁止商业用途或恶意刷单。请遵守各平台用户协议，勿高频请求；使用本工具导致的账号限制等后果由使用者自行承担。
 
@@ -30,7 +30,7 @@
 - **多阶段轮询**：等待期 → 预热期 → 高频期（间隔可配）。
 - **Dry-Run**：演练检测与日志/截图，不执行真实购买点击。
 - **人工接管**：验证码、滑块、登录失效时暂停并通知，终端确认后继续。
-- **安全提交**：默认 `auto_submit_order: false`，停在结算页；仅当配置显式为 `true` 时才自动提交订单。
+- **自动提交校验**：`auto_submit_order: true` 时，会先检查订单页商品关键词与金额上限，再点击提交订单。
 - **通知**：桌面、日志、Bark、PushPlus、SMTP、Webhook。
 
 ---
@@ -81,12 +81,15 @@ playwright install chromium
 | 节点 | 参数 | 说明 |
 | --- | --- | --- |
 | `product` | `url` | 商品详情页链接。 |
-| `schedule` | `sale_time` | 开售时间 `YYYY-MM-DD HH:MM:SS`。 |
+| `product` | `required_keywords` | 自动提交前必须出现在订单页的商品关键词。 |
+| `schedule` | `sale_time` | 开售时间 `YYYY-MM-DD HH:MM:SS`；留空表示立即进入高频监控。 |
 | `schedule` | `poll_interval_*` | 各阶段轮询间隔（秒）；高频建议不低于约 `0.3`。 |
 | `selectors` | `btn_buy_now` 等 | 主按钮 CSS，逗号分隔多备选。 |
+| `selectors` | `order_total` | 自动提交前用于识别订单金额的选择器。 |
 | `selectors` | **`login_check`** | **建议必填**：用于判断登录态的元素；未配置时程序会 **打一次 WARNING** 并默认视为已登录（可能误判）。 |
 | `purchase` | `dry_run` | `true` 为演练；`false` 为实战。 |
-| `purchase` | `auto_submit_order` | 默认 `false`：进入结算页后需人工支付。 |
+| `purchase` | `auto_submit_order` | `true` 时自动提交订单；提交前仍会做关键词和金额校验。 |
+| `purchase` | `max_order_total_cny` | 订单金额上限，超过会阻止自动提交并通知人工接管。 |
 | `notify` | `methods` | 如 `["desktop", "log", "bark"]`。 |
 | `browser` | `headless` | 建议 `false` 便于观察与人工验证。 |
 
@@ -96,13 +99,14 @@ playwright install chromium
 
 统一入口：`scripts/run_sale.py`。
 
-**1. 登录准备（京东示例）**
+**1. 登录准备**
 
 ```bash
 python scripts/run_sale.py --platform jd --check-login
+python scripts/run_sale.py --platform dji --check-login
 ```
 
-在浏览器中完成登录后关闭窗口；凭证写入 `profiles/jd_profile/`。
+在浏览器中完成登录后关闭窗口；凭证写入 `profiles/jd_profile/` 与 `profiles/dji_profile/`。
 
 **2. 测试通知（可选）**
 
@@ -114,15 +118,21 @@ python scripts/run_sale.py --platform jd --test-notify
 
 ```bash
 python scripts/run_sale.py --platform jd --dry-run
+python scripts/run_sale.py --platform dji --dry-run
+python scripts/run_sale.py --platform both --dry-run
 ```
 
-**4. 实战（务必确认配置）**
+**4. 实战自动提交（务必确认配置）**
 
 ```bash
 python scripts/run_sale.py --platform jd --no-dry-run
+python scripts/run_sale.py --platform dji --no-dry-run
+python scripts/run_sale.py --platform both --no-dry-run
 ```
 
-大疆示例：`--platform dji`，配置文件默认 `config/dji.json`。自定义配置：`--config path/to/custom.json`。
+默认配置已开启 `auto_submit_order: true` 与 `dry_run: false`，并将金额上限设为 `4500` 元。运行前请确认商品链接、收货地址、支付方式、`require_order_keywords` 与 `max_order_total_cny`。
+
+大疆示例：`--platform dji`，配置文件默认 `config/dji.json`。自定义配置：`--config path/to/custom.json`。并行模式可用 `--jd-config` 与 `--dji-config` 分别指定配置文件。
 
 **VS Code 调试**：在运行和调试面板中选择 `run_sale: JD dry-run` 等配置（见 [`.vscode/launch.json`](.vscode/launch.json)）。
 
@@ -163,6 +173,6 @@ seckill-assistant/
 ## 常见问题与注意事项
 
 1. **验证码与滑块**：不包含自动破解；触发风控后请在浏览器内手动完成，终端按 `Enter` 继续。
-2. **结算页**：默认不自动提交订单；确有需要再在配置中开启 `auto_submit_order`。
+2. **自动提交**：当前本地配置会自动提交订单；如需只监控不下单，请改 `purchase.dry_run=true` 或运行时加 `--dry-run`。
 3. **大疆站点**：可适当增大 `slow_mo` 或轮询间隔以降低拦截概率。
 4. **系统时间**：请开启 NTP，保证本机时间准确。
