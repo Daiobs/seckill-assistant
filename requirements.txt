@@ -4,6 +4,8 @@
 
 # 核心依赖
 playwright>=1.44.0
+fastapi>=0.115.0
+uvicorn[standard]>=0.30.0
 
 # 时区支持（Python 3.9+ 内置 zoneinfo，此处为兼容性保留）
 # tzdata 在 Windows 上需要显式安装

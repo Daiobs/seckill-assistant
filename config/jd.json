@@ -1,17 +1,18 @@
 {
   "_comment": "京东 Osmo Pocket 4P 抢购配置；如能拿到 item.jd.com/xxxx.html 最终链接，请替换 product.url",
-
   "platform": "jd",
-
   "product": {
     "name": "Osmo Pocket 4P Vlog 套装",
     "url": "https://u.jd.com/VrzpJPF",
     "sku_id": "JD_OSMO_POCKET_4P_VLOG",
-    "required_keywords": ["Osmo", "Pocket", "4P"]
+    "required_keywords": [
+      "Osmo",
+      "Pocket",
+      "4P"
+    ]
   },
-
   "schedule": {
-    "sale_time": "",
+    "sale_time": "2026-07-07 20:00:00",
     "timezone": "Asia/Shanghai",
     "warmup_seconds_before": 300,
     "high_freq_seconds_before": 60,
@@ -21,26 +22,28 @@
     "max_retry_on_error": 5,
     "retry_wait_seconds": 3.0
   },
-
   "selectors": {
-    "btn_buy_now":       "#btn-buy-now, .btn-buy-now, #InitCartUrl, [id*='btn-buy'], [class*='btn-buy']",
-    "btn_add_to_cart":   "#btn-cart, .btn-cart, [id*='add-cart'], [class*='add-cart']",
-    "btn_appointment":   "#btn-appointment, .btn-appointment, [id*='appointment'], [class*='appointment']",
-    "btn_presale":       "#btn-presale, .btn-presale, [id*='presale'], [class*='presale']",
-    "btn_out_of_stock":  ".btn-disabled, [class*='btn-disabled'], #InitCartUrl[disabled], #btn-reservation[disabled], #btn-buy-now[disabled], .btn-buy-now[disabled]",
-    "checkout_submit":   "#order-submit, .order-submit, [id*='order-submit'], [class*='submit-btn']",
-    "checkout_confirm":  ".btn-confirm, [id*='confirm'], [class*='confirm-btn']",
-    "order_total":       ".price-num, .sumPrice .price, #sumPayPriceId, [class*='pay-price'], [class*='total']",
-    "price":             ".p-price .price, #jd-price, .price-b",
-    "stock_status":      ".p-stock .pstock, #store-prompt, .stock-prompt",
+    "btn_buy_now": "#btn-buy-now, .btn-buy-now, #InitCartUrl, [id*='btn-buy'], [class*='btn-buy']",
+    "btn_add_to_cart": "#btn-cart, .btn-cart, [id*='add-cart'], [class*='add-cart']",
+    "btn_appointment": "#btn-appointment, .btn-appointment, [id*='appointment'], [class*='appointment']",
+    "btn_presale": "#btn-presale, .btn-presale, [id*='presale'], [class*='presale']",
+    "btn_out_of_stock": ".btn-disabled, [class*='btn-disabled'], #InitCartUrl[disabled], #btn-reservation[disabled], #btn-buy-now[disabled], .btn-buy-now[disabled]",
+    "checkout_submit": "#order-submit, .order-submit, [id*='order-submit'], [class*='submit-btn']",
+    "checkout_confirm": ".btn-confirm, [id*='confirm'], [class*='confirm-btn']",
+    "order_total": ".price-num, .sumPrice .price, #sumPayPriceId, [class*='pay-price'], [class*='total']",
+    "price": ".p-price .price, #jd-price, .price-b",
+    "stock_status": ".p-stock .pstock, #store-prompt, .stock-prompt",
     "captcha_container": "#JDJRV-wrap-loginsubmit, .JDJRV-slide, [id*='captcha'], [class*='captcha'], [class*='slider']",
-    "login_check":       "#ttbar-login a, .nickname, [class*='nickname']"
+    "login_check": "#ttbar-login a, .nickname, [class*='nickname']"
   },
-
   "purchase": {
     "auto_submit_order": true,
     "dry_run": false,
-    "require_order_keywords": ["Osmo", "Pocket", "4P"],
+    "require_order_keywords": [
+      "Osmo",
+      "Pocket",
+      "4P"
+    ],
     "max_order_total_cny": 4500,
     "require_total_detected": true,
     "quantity": 1,
@@ -49,9 +52,11 @@
     "address_index": 0,
     "invoice_skip": true
   },
-
   "notify": {
-    "methods": ["desktop", "log"],
+    "methods": [
+      "desktop",
+      "log"
+    ],
     "bark_url": "",
     "pushplus_token": "",
     "smtp": {
@@ -64,17 +69,18 @@
     },
     "webhook_url": ""
   },
-
   "browser": {
     "profile_dir": "profiles/jd_profile",
     "headless": false,
     "slow_mo": 50,
-    "viewport": {"width": 1280, "height": 800},
+    "viewport": {
+      "width": 1280,
+      "height": 800
+    },
     "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
     "timeout_ms": 15000,
     "navigation_timeout_ms": 30000
   },
-
   "logging": {
     "level": "INFO",
     "log_dir": "logs",

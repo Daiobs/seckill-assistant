@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Pocket 4P 本地抢购控制台</title>
+    <link rel="stylesheet" href="/static/style.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div>
+        <h1>Pocket 4P 本地抢购控制台</h1>
+        <p>仅监听本机，封装现有 CLI，不处理验证码和支付确认。</p>
+      </div>
+      <div class="status-card">
+        <span class="label">当前状态</span>
+        <strong id="statusText">等待</strong>
+      </div>
+    </header>
+
+    <main class="layout">
+      <section class="panel">
+        <h2>运行状态</h2>
+        <div class="status-grid">
+          <div><span>平台</span><strong id="runtimePlatform">-</strong></div>
+          <div><span>模式</span><strong id="runtimeMode">-</strong></div>
+          <div><span>PID</span><strong id="runtimePid">-</strong></div>
+          <div><span>登录检查 PID</span><strong id="loginPid">-</strong></div>
+        </div>
+        <p id="lastError" class="error-text"></p>
+      </section>
+
+      <section class="panel">
+        <h2>配置</h2>
+        <div class="switch-row">
+          <label><input id="jdEnabled" type="checkbox" checked /> 京东启用</label>
+          <label><input id="djiEnabled" type="checkbox" checked /> DJI 官网启用</label>
+          <label><input id="dryRun" type="checkbox" checked /> Dry-Run</label>
+          <label><input id="autoSubmit" type="checkbox" checked /> 自动提交订单</label>
+        </div>
+
+        <label class="field">
+          <span>京东商品链接</span>
+          <input id="jdUrl" type="url" />
+        </label>
+        <label class="field">
+          <span>DJI 商品链接</span>
+          <input id="djiUrl" type="url" />
+        </label>
+        <div class="two-col">
+          <label class="field">
+            <span>开售时间</span>
+            <input id="saleTime" type="text" placeholder="2026-07-07 20:00:00" />
+          </label>
+          <label class="field">
+            <span>金额上限 CNY</span>
+            <input id="maxTotal" type="number" min="1" step="1" />
+          </label>
+        </div>
+        <label class="field">
+          <span>关键词，逗号分隔</span>
+          <input id="keywords" type="text" placeholder="Osmo,Pocket,4P" />
+        </label>
+        <div class="two-col">
+          <label class="field">
+            <span>浏览器 slow_mo</span>
+            <input id="slowMo" type="number" min="0" step="10" />
+          </label>
+          <label class="check-field">
+            <input id="headless" type="checkbox" />
+            <span>Headless 模式</span>
+          </label>
+        </div>
+
+        <div class="actions">
+          <button id="saveConfig" type="button">保存配置</button>
+          <button id="loginJd" type="button">京东登录检查</button>
+          <button id="loginDji" type="button">DJI 登录检查</button>
+          <button id="confirmLogin" type="button">完成登录检查</button>
+        </div>
+      </section>
+
+      <section class="panel">
+        <h2>操作</h2>
+        <div class="actions primary-actions">
+          <button id="startMonitor" type="button" class="primary">开始监控</button>
+          <button id="stopMonitor" type="button" class="danger">停止监控</button>
+        </div>
+        <p class="hint">实战模式会要求输入“我确认”，并展示商品链接、金额上限、关键词和开售时间。</p>
+      </section>
+
+      <section class="panel logs-panel">
+        <div class="panel-head">
+          <h2>实时日志</h2>
+          <label><input id="autoScroll" type="checkbox" checked /> 自动滚动</label>
+        </div>
+        <pre id="logs"></pre>
+      </section>
+
+      <section class="panel screenshot-panel">
+        <div class="panel-head">
+          <h2>最新截图</h2>
+          <span id="screenshotTime">暂无截图</span>
+        </div>
+        <a id="screenshotLink" href="#" target="_blank" rel="noreferrer">
+          <img id="latestScreenshot" alt="最新截图" />
+        </a>
+      </section>
+    </main>
+
+    <dialog id="confirmDialog">
+      <form method="dialog">
+        <h2>实战模式二次确认</h2>
+        <pre id="confirmSummary"></pre>
+        <label class="field">
+          <span>请输入“我确认”</span>
+          <input id="confirmText" type="text" autocomplete="off" />
+        </label>
+        <div class="actions">
+          <button value="cancel" type="submit">取消</button>
+          <button id="confirmLiveStart" value="ok" type="button" class="danger">确认启动</button>
+        </div>
+      </form>
+    </dialog>
+
+    <div id="toast" role="status"></div>
+    <script src="/static/app.js"></script>
+  </body>
+</html>
+

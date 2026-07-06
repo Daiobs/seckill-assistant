@@ -17,6 +17,7 @@
 - [环境准备](#环境准备与安装)
 - [配置说明](#配置说明)
 - [运行方式](#运行方式)
+- [本地控制台](#本地控制台)
 - [目录结构](#目录结构)
 - [开源与贡献](#开源与贡献)
 - [常见问题](#常见问题与注意事项)
@@ -44,7 +45,7 @@
 ### 2. 获取代码
 
 ```bash
-git clone https://github.com/jackmac2077-beep/seckill-assistant.git
+git clone https://github.com/Daiobs/seckill-assistant.git
 cd seckill-assistant
 ```
 
@@ -138,11 +139,43 @@ python scripts/run_sale.py --platform both --no-dry-run
 
 ---
 
+## 本地控制台
+
+控制台只默认监听本机 `127.0.0.1`，不需要登录系统，不会保存账号密码、Cookie、短信验证码，也不会处理验证码破解。它通过子进程调用现有 CLI，所以原来的命令仍然可用。
+
+```bash
+pip install -r requirements.txt
+playwright install chromium
+python scripts/run_console.py --host 127.0.0.1 --port 8787
+```
+
+访问：
+
+```text
+http://localhost:8787
+```
+
+页面支持：
+
+- 京东 / DJI 官网启用开关
+- Dry-Run / 实战模式切换
+- 商品链接、开售时间、关键词、金额上限、自动提交开关
+- 京东与 DJI 登录检查
+- 开始 / 停止监控
+- 实时日志
+- 最新截图
+- 当前状态展示
+
+实战模式启动前，页面会显示商品链接、金额上限、关键词和开售时间，并要求输入 `我确认`。后端也会检查 `max_order_total_cny`、`require_order_keywords`、`sale_time` 和 `headless=false` 后才允许启动 `--no-dry-run`。
+
+---
+
 ## 目录结构
 
 ```text
 seckill-assistant/
 ├── .github/              # Issue / PR 模板
+├── console_app/          # 本地 Web 控制台
 ├── config/               # JSON 配置
 ├── scripts/              # 入口与平台逻辑
 ├── profiles/             # 浏览器数据（本地生成，勿提交）

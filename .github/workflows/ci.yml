@@ -20,4 +20,4 @@ jobs:
         run: pip install "ruff>=0.6.0"
 
       - name: Ruff check
-        run: ruff check scripts
+        run: ruff check scripts console_app
