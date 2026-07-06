@@ -28,6 +28,12 @@ from .status_parser import (
 )
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
+SCRIPTS_DIR = PROJECT_ROOT / "scripts"
+if str(SCRIPTS_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPTS_DIR))
+
+from runtime_events import emit_event  # noqa: E402
+
 RUNTIME_STATE_PATH = PROJECT_ROOT / ".runtime" / "state.json"
 DIAGNOSTICS_DIR = PROJECT_ROOT / ".runtime" / "diagnostics"
 PLATFORMS = ("jd", "dji")
@@ -63,6 +69,7 @@ def _empty_job(platform: str) -> dict[str, Any]:
         "status": STATUS_WAITING,
         "started_at": None,
         "last_error": "",
+        "logs": deque(maxlen=300),
         "latest_screenshot": "",
         "waiting_for_human": False,
     }
@@ -111,6 +118,7 @@ class RuntimeManager:
                 job = self.jobs[platform]
                 job["status"] = parse_status_from_line(clean_line, job["status"])
                 job["waiting_for_human"] = job["status"] == STATUS_NEEDS_HUMAN
+                job["logs"].append(formatted)
             subscribers = list(self._subscribers)
         for subscriber in subscribers:
             try:
@@ -137,6 +145,9 @@ class RuntimeManager:
                             job["waiting_for_human"] = False
                             job["last_error"] = f"{platform} 监控进程退出码 {return_code}"
                             self.last_error = job["last_error"]
+                            emit_event(platform, "error", job["last_error"])
+                        else:
+                            emit_event(platform, "stopped", f"{platform} 监控进程已退出")
                         job["process"] = None
                         job["pid"] = None
                 if kind == "login" and self.login_process is proc:
@@ -227,6 +238,7 @@ class RuntimeManager:
                 job["pid"] = None
                 job["status"] = STATUS_STOPPED
                 job["waiting_for_human"] = False
+            emit_event(target, "stopped", f"{target} 监控已由控制台停止")
             self._append_log("[console] monitor stopped by user", target)
         return self.get_status()
 
@@ -385,6 +397,7 @@ class RuntimeManager:
             "started_at": job.get("started_at"),
             "last_error": job.get("last_error", ""),
             "latest_screenshot": latest_screenshot,
+            "logs": list(job.get("logs", []))[-50:],
         }
 
     def _aggregate_status(self, jobs: dict[str, dict[str, Any]]) -> str:

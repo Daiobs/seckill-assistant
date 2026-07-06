@@ -29,9 +29,7 @@ def parse_status_from_line(line: str, current_status: str = STATUS_WAITING) -> s
     ):
         return STATUS_NEEDS_HUMAN
 
-    if any(keyword in line for keyword in ("已自动提交订单", "自动点击提交订单")):
-        return STATUS_SUBMITTED
-    if "after_submit" in text:
+    if any(keyword in line for keyword in ("已自动提交订单", "提交成功", "进入支付")):
         return STATUS_SUBMITTED
 
     if any(keyword in line for keyword in ("已进入结算页", "购物车页")):
@@ -58,4 +56,3 @@ def parse_status_from_line(line: str, current_status: str = STATUS_WAITING) -> s
         return STATUS_RUNNING
 
     return current_status
-

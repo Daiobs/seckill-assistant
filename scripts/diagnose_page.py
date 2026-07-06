@@ -81,6 +81,24 @@ def _candidates(page: Page, selectors: dict[str, str], key: str) -> list[dict[st
     return records
 
 
+def _cookie_popup_exists(page: Page) -> bool:
+    checks = (
+        "Accept All Cookies",
+        "Accept All",
+        "同意",
+        "接受",
+        "我知道了",
+    )
+    try:
+        for text in checks:
+            locator = page.get_by_text(text, exact=False).first
+            if locator and locator.is_visible():
+                return True
+        return bool(page.query_selector("[class*='cookie'], [id*='cookie']"))
+    except Exception:  # noqa: BLE001
+        return False
+
+
 def diagnose(platform: str, config_path: Path | None = None) -> dict[str, Any]:
     if platform not in CONFIG_PATHS:
         raise ValueError("platform 必须是 jd 或 dji")
@@ -101,7 +119,8 @@ def diagnose(platform: str, config_path: Path | None = None) -> dict[str, Any]:
         try:
             page.goto(product_url, wait_until="domcontentloaded")
             page.wait_for_timeout(2000)
-            dismiss_cookie_banner(page, platform)
+            cookie_popup_exists = _cookie_popup_exists(page)
+            dismiss_cookie_banner(page, platform, screenshot_dir)
             screenshot = take_screenshot(page, screenshot_dir, tag=f"{platform}_diagnose")
             buy_texts = ["立即购买", "立即抢购", "马上抢", "购买", "Buy Now"]
             add_texts = ["加入购物车", "加购物车", "Add to Cart"]
@@ -114,6 +133,7 @@ def diagnose(platform: str, config_path: Path | None = None) -> dict[str, Any]:
                 "title": page.title(),
                 "login_state": detect_login_state(page, selectors, platform),
                 "captcha_detected": check_captcha(page, selectors, platform),
+                "cookie_popup_exists": cookie_popup_exists,
                 "cookie_popup_checked": True,
                 "latest_screenshot": screenshot,
                 "buy_button_match": _match_view(buy_match),

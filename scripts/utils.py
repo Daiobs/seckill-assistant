@@ -472,7 +472,7 @@ def find_action_element(
     return None
 
 
-def dismiss_cookie_banner(page: Page, platform: str) -> bool:
+def dismiss_cookie_banner(page: Page, platform: str, screenshot_dir: str = "") -> bool:
     """Try to close or accept a cookie/privacy banner once without interrupting flow."""
     logger = logging.getLogger("seckill.utils")
     texts = ("Accept All Cookies", "Accept All", "同意", "接受", "我知道了")
@@ -487,15 +487,23 @@ def dismiss_cookie_banner(page: Page, platform: str) -> bool:
             locator = page.get_by_text(text, exact=False).first
             if locator and locator.is_visible() and locator.is_enabled():
                 logger.info("尝试关闭 Cookie 弹窗：platform=%s text=%s", platform, text)
+                if screenshot_dir:
+                    take_screenshot(page, screenshot_dir, tag=f"{platform}_cookie_before")
                 locator.click()
                 page.wait_for_timeout(500)
+                if screenshot_dir:
+                    take_screenshot(page, screenshot_dir, tag=f"{platform}_cookie_after")
                 return True
         for selector in close_selectors:
             el = page.query_selector(selector)
             if el and el.is_visible() and el.is_enabled():
                 logger.info("尝试关闭 Cookie 弹窗：platform=%s selector=%s", platform, selector)
+                if screenshot_dir:
+                    take_screenshot(page, screenshot_dir, tag=f"{platform}_cookie_before")
                 el.click()
                 page.wait_for_timeout(500)
+                if screenshot_dir:
+                    take_screenshot(page, screenshot_dir, tag=f"{platform}_cookie_after")
                 return True
     except Exception as exc:  # noqa: BLE001
         logger.info("Cookie 弹窗处理失败但不影响主流程：platform=%s error=%s", platform, exc)

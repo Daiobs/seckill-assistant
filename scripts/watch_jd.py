@@ -161,6 +161,12 @@ def click_buy_button(
                 match["class"],
                 match["id"],
             )
+            emit_event(
+                "jd",
+                "stock_found",
+                f"京东准备点击购买按钮：{btn_state}",
+                extra={"selector": match["selector"], "text": match["text"], "url": page.url},
+            )
             take_screenshot(page, screenshot_dir, tag="before_click")
             match["element"].click()
             page.wait_for_timeout(1500)
@@ -347,7 +353,7 @@ def run_watch_loop(cfg: dict[str, Any], dry_run_override: bool = False) -> None:
             # ----------------------------------------------------------------
             logger.info("正在打开商品页：%s", product_url)
             page.goto(product_url, wait_until="domcontentloaded")
-            dismiss_cookie_banner(page, "jd")
+            dismiss_cookie_banner(page, "jd", screenshot_dir)
             scr_path = take_screenshot(page, screenshot_dir, tag="page_open")
             emit_event("jd", "monitoring", "京东商品页已打开", scr_path, {"url": page.url})
 
@@ -378,6 +384,7 @@ def run_watch_loop(cfg: dict[str, Any], dry_run_override: bool = False) -> None:
             # ----------------------------------------------------------------
             # 主循环
             # ----------------------------------------------------------------
+            last_phase_name = ""
             while seckill_state not in (SeckillState.DONE, SeckillState.SUCCESS):
                 try:
                     # 计算距开售时间
@@ -389,11 +396,16 @@ def run_watch_loop(cfg: dict[str, Any], dry_run_override: bool = False) -> None:
                             seckill_state = SeckillState.WAITING
                         poll_interval = poll_normal
                         phase_name = "等待"
+                        if last_phase_name != phase_name:
+                            logger.info("进入【等待阶段】，距开售 %.0f 秒", secs)
+                            emit_event("jd", "waiting", "京东进入等待阶段", extra={"url": page.url})
+                            last_phase_name = phase_name
                     elif secs > high_freq_before:
                         if seckill_state != SeckillState.WARMUP:
                             seckill_state = SeckillState.WARMUP
                             logger.info("进入【预热模式】，距开售 %.0f 秒", secs)
                             emit_event("jd", "monitoring", "京东进入预热模式", extra={"url": page.url})
+                            last_phase_name = "预热"
                         poll_interval = poll_warmup
                         phase_name = "预热"
                     else:
@@ -401,6 +413,7 @@ def run_watch_loop(cfg: dict[str, Any], dry_run_override: bool = False) -> None:
                             seckill_state = SeckillState.HIGH_FREQ
                             logger.info("进入【高频轮询模式】，距开售 %.1f 秒", secs)
                             emit_event("jd", "monitoring", "京东进入高频轮询", extra={"url": page.url})
+                            last_phase_name = "高频"
                         poll_interval = poll_high
                         phase_name = "高频"
 

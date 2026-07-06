@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-import time
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -41,8 +41,9 @@ def emit_event(
 ) -> dict[str, Any]:
     """Append an event and update the latest per-platform runtime state."""
     RUNTIME_DIR.mkdir(parents=True, exist_ok=True)
+    ts = datetime.now().astimezone().isoformat(timespec="seconds")
     event = {
-        "ts": time.time(),
+        "ts": ts,
         "platform": platform,
         "state": state,
         "message": message,
@@ -60,7 +61,7 @@ def emit_event(
             "platform": platform,
             "state": state,
             "message": message,
-            "updated_at": event["ts"],
+            "updated_at": ts,
         }
     )
     if screenshot:
