@@ -36,7 +36,7 @@ if str(SCRIPTS_DIR) not in sys.path:
 
 from runtime_events import emit_event  # noqa: E402
 
-RUNTIME_STATE_PATH = PROJECT_ROOT / ".runtime" / "state.json"
+RUNTIME_STATE_DIR = PROJECT_ROOT / ".runtime" / "state"
 DIAGNOSTICS_DIR = PROJECT_ROOT / ".runtime" / "diagnostics"
 PLATFORMS = ("jd", "dji")
 AGGREGATE_PRIORITY = (
@@ -416,14 +416,19 @@ class RuntimeManager:
             pass
 
     def _load_runtime_state(self) -> dict[str, Any]:
-        if not RUNTIME_STATE_PATH.exists():
-            return {"jobs": {}}
-        try:
-            with RUNTIME_STATE_PATH.open("r", encoding="utf-8") as f:
-                data = json.load(f)
-            return data if isinstance(data, dict) else {"jobs": {}}
-        except Exception:  # noqa: BLE001
-            return {"jobs": {}}
+        jobs: dict[str, Any] = {}
+        for platform in PLATFORMS:
+            path = RUNTIME_STATE_DIR / f"{platform}.json"
+            if not path.exists():
+                continue
+            try:
+                with path.open("r", encoding="utf-8") as f:
+                    data = json.load(f)
+                if isinstance(data, dict):
+                    jobs[platform] = data
+            except Exception:  # noqa: BLE001
+                continue
+        return {"jobs": jobs}
 
     def _runtime_job_is_current(
         self,

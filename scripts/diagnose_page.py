@@ -53,6 +53,7 @@ def _candidate(page: Page, selector: str) -> list[dict[str, Any]]:
                     tag: e.tagName.toLowerCase(),
                     id: e.id || "",
                     className: typeof e.className === "string" ? e.className : "",
+                    role: e.getAttribute("role") || "",
                     disabled: !!e.disabled
                 })"""
             )
@@ -65,6 +66,7 @@ def _candidate(page: Page, selector: str) -> list[dict[str, Any]]:
                     "tag": attrs.get("tag", ""),
                     "id": attrs.get("id", ""),
                     "class": attrs.get("className", ""),
+                    "role": attrs.get("role", ""),
                     "bbox": el.bounding_box(),
                     "disabled": bool(attrs.get("disabled", False)),
                 }

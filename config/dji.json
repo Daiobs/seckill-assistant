@@ -32,7 +32,7 @@
     "order_total": ".total-price, .order-total, [class*='total-price'], [class*='pay-price'], [class*='amount']",
     "price": ".price-value, .product-price, [class*='price']",
     "captcha_container": "[class*='captcha'], [id*='captcha'], [class*='verify'], iframe[src*='captcha'], iframe[src*='verify']",
-    "login_check": ".user-info, .logged-in, [class*='user-avatar'], [class*='account']"
+    "login_check": ".user-info, .logged-in, [class*='user-avatar']"
   },
   "purchase": {
     "auto_submit_order": true,

@@ -260,11 +260,12 @@ def _element_summary(el: ElementHandle) -> dict[str, Any]:
                 id: e.id || "",
                 className: typeof e.className === "string" ? e.className : "",
                 src: e.getAttribute("src") || "",
+                role: e.getAttribute("role") || "",
                 disabled: !!e.disabled
             })"""
         )
     except Exception:  # noqa: BLE001
-        attrs = {"id": "", "className": "", "src": "", "disabled": False}
+        attrs = {"id": "", "className": "", "src": "", "role": "", "disabled": False}
     try:
         box = el.bounding_box()
     except Exception:  # noqa: BLE001
@@ -275,6 +276,7 @@ def _element_summary(el: ElementHandle) -> dict[str, Any]:
         "id": attrs.get("id", ""),
         "class": attrs.get("className", ""),
         "src": attrs.get("src", ""),
+        "role": attrs.get("role", ""),
         "disabled": bool(attrs.get("disabled", False)),
         "bbox": box,
     }
@@ -355,18 +357,22 @@ def detect_login_state(page: Page, selectors: dict[str, str], platform: str = ""
         "重新登录",
         "未登录",
     )
-    logged_in_keywords = (
+    logged_in_text_keywords = (
         "我的",
         "账号",
         "账户",
         "会员",
-        "用户",
+        "昵称",
+        "用户名",
+        "用户中心",
+        "个人中心",
+    )
+    logged_in_marker_keywords = (
         "nickname",
-        "account",
         "avatar",
+        "user-avatar",
         "退出",
         "logout",
-        "用户中心",
         "user-center",
         "user center",
         "logged-in",
@@ -391,10 +397,18 @@ def detect_login_state(page: Page, selectors: dict[str, str], platform: str = ""
                     logger.info("登录态检测：platform=%s selector=%s -> logged_out", platform, selector)
                     return LoginState.LOGGED_OUT
                 if text or summary["class"] or summary["id"]:
-                    if any(keyword.lower() in marker for keyword in logged_in_keywords):
+                    if any(keyword.lower() in text_lower for keyword in logged_in_text_keywords):
                         logger.info("登录态检测：platform=%s selector=%s -> logged_in", platform, selector)
                         return LoginState.LOGGED_IN
-                    if len(text) >= 2 and text not in ("-", "...") and not explicit_logged_out:
+                    if any(keyword.lower() in marker for keyword in logged_in_marker_keywords):
+                        logger.info("登录态检测：platform=%s selector=%s -> logged_in", platform, selector)
+                        return LoginState.LOGGED_IN
+                    if (
+                        len(text) >= 2
+                        and text not in ("-", "...")
+                        and not explicit_logged_out
+                        and not re.fullmatch(r"[A-Za-z0-9_ -]{1,20}", text)
+                    ):
                         return LoginState.LOGGED_IN
     except Exception:  # noqa: BLE001
         return LoginState.UNKNOWN
@@ -450,6 +464,23 @@ def _text_matches(text: str, allowed_texts: list[str], blocked_texts: list[str])
     return any(allowed.lower() in normalized for allowed in allowed_texts)
 
 
+def _action_match_from_handle(
+    el: ElementHandle,
+    selector: str,
+    allowed_texts: list[str],
+    blocked_texts: list[str],
+) -> dict[str, Any] | None:
+    try:
+        if not el.is_visible() or not el.is_enabled():
+            return None
+        summary = _element_summary(el)
+        if _text_matches(summary["text"], allowed_texts, blocked_texts):
+            return {"element": el, "selector": selector, **summary}
+    except Exception:  # noqa: BLE001
+        return None
+    return None
+
+
 def find_action_element(
     page: Page,
     selectors: dict[str, str],
@@ -463,24 +494,59 @@ def find_action_element(
     for selector in _selector_list(selector_text):
         try:
             for el in page.query_selector_all(selector)[:10]:
-                if not el.is_visible() or not el.is_enabled():
-                    continue
-                summary = _element_summary(el)
-                if _text_matches(summary["text"], allowed_texts, blocked):
-                    return {"element": el, "selector": selector, **summary}
+                match = _action_match_from_handle(el, selector, allowed_texts, blocked)
+                if match:
+                    return match
+        except Exception:  # noqa: BLE001
+            continue
+
+    for text in allowed_texts:
+        try:
+            locator = page.get_by_role("button", name=text, exact=False).first
+            if locator and locator.is_visible() and locator.is_enabled():
+                handle = locator.element_handle()
+                if handle:
+                    match = _action_match_from_handle(
+                        handle, f"role=button name={text}", allowed_texts, blocked
+                    )
+                    if match:
+                        return match
+        except Exception:  # noqa: BLE001
+            continue
+
+    for text in allowed_texts:
+        try:
+            locator = page.get_by_role("link", name=text, exact=False).first
+            if locator and locator.is_visible() and locator.is_enabled():
+                handle = locator.element_handle()
+                if handle:
+                    match = _action_match_from_handle(
+                        handle, f"role=link name={text}", allowed_texts, blocked
+                    )
+                    if match:
+                        return match
         except Exception:  # noqa: BLE001
             continue
 
     for text in allowed_texts:
         try:
             locator = page.get_by_text(text, exact=False).first
-            if locator and locator.is_visible() and locator.is_enabled():
-                handle = locator.element_handle()
-                if not handle:
-                    continue
-                summary = _element_summary(handle)
-                if _text_matches(summary["text"], allowed_texts, blocked):
-                    return {"element": handle, "selector": f"text={text}", **summary}
+            if not locator or not locator.is_visible():
+                continue
+            text_handle = locator.element_handle()
+            if not text_handle:
+                continue
+            closest_handle = text_handle.evaluate_handle(
+                "e => e.closest('button,a,[role=\"button\"]')"
+            )
+            closest = closest_handle.as_element()
+            if not closest:
+                continue
+            match = _action_match_from_handle(
+                closest, f"text={text} closest-action", allowed_texts, blocked
+            )
+            if match:
+                return match
         except Exception:  # noqa: BLE001
             continue
     return None
