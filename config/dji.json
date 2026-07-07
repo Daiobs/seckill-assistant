@@ -2,9 +2,9 @@
   "_comment": "大疆官网 Osmo Pocket 4P 抢购配置",
   "platform": "dji",
   "product": {
-    "name": "Osmo Pocket 4P Vlog 套装",
-    "url": "https://store.dji.com/cn/product/osmo-pocket-4p-vlog-combo?vid=241311",
-    "sku_id": "osmo-pocket-4p-vlog-combo",
+    "name": "Osmo Pocket 4P 标准套装",
+    "url": "https://store.dji.com/cn/product/osmo-pocket-4p?vid=241282",
+    "sku_id": "osmo-pocket-4p",
     "required_keywords": [
       "Osmo",
       "Pocket",
@@ -16,9 +16,12 @@
     "timezone": "Asia/Shanghai",
     "warmup_seconds_before": 300,
     "high_freq_seconds_before": 60,
-    "poll_interval_normal": 5.0,
+    "poll_interval_normal": 60.0,
     "poll_interval_warmup": 2.0,
     "poll_interval_high_freq": 0.3,
+    "warmup_reload_interval_seconds": 2.0,
+    "high_freq_reload_interval_seconds": 0.8,
+    "login_check_interval_seconds": 60.0,
     "max_retry_on_error": 5,
     "retry_wait_seconds": 3.0
   },
@@ -47,6 +50,8 @@
     "quantity": 1,
     "buy_now_flow": true,
     "cart_flow_fallback": true,
+    "busy_retry_attempts": 8,
+    "busy_retry_interval_seconds": 0.12,
     "address_index": 0
   },
   "notify": {

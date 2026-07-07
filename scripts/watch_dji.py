@@ -57,10 +57,49 @@ from utils import (
 
 logger = logging.getLogger("seckill.dji")
 
+BUSY_RETRY_KEYWORDS = (
+    "抢购人数过多",
+    "请稍后再试",
+    "系统繁忙",
+    "网络繁忙",
+    "请求过多",
+    "too many",
+    "try again later",
+)
+
 
 # ---------------------------------------------------------------------------
 # 按钮状态检测（大疆官网专用）
 # ---------------------------------------------------------------------------
+
+def dismiss_dji_popups(page: Page) -> bool:
+    """Close DJI marketing popups that can sit above the buy button."""
+    clicked = False
+    for text in ("好", "稍后", "我知道了", "知道了"):
+        try:
+            locator = page.get_by_role("button", name=text, exact=True).first
+            if locator and locator.is_visible() and locator.is_enabled():
+                logger.info("大疆：关闭弹窗按钮：%s", text)
+                locator.click()
+                page.wait_for_timeout(150)
+                clicked = True
+        except Exception:  # noqa: BLE001
+            continue
+    return clicked
+
+
+def dji_busy_message(page: Page) -> str:
+    """Return DJI transient overload message if visible."""
+    try:
+        text = page.locator("body").inner_text(timeout=800)
+    except Exception:  # noqa: BLE001
+        return ""
+    text_lower = text.lower()
+    for keyword in BUSY_RETRY_KEYWORDS:
+        if keyword.lower() in text_lower:
+            return keyword
+    return ""
+
 
 def detect_button_state_dji(page: Page, selectors: dict[str, str]) -> str:
     """
@@ -120,11 +159,16 @@ def click_buy_button_dji(
     btn_state: str,
     dry_run: bool,
     screenshot_dir: str,
+    *,
+    busy_retry_attempts: int = 1,
+    busy_retry_interval: float = 0.2,
+    capture_screenshot: bool = True,
 ) -> bool:
     """点击大疆官网购买按钮"""
     if dry_run:
         logger.info("[DRY-RUN] 检测到按钮状态=%s，跳过实际点击", btn_state)
-        take_screenshot(page, screenshot_dir, tag="dji_dry_run_detected")
+        if capture_screenshot:
+            take_screenshot(page, screenshot_dir, tag="dji_dry_run_detected")
         return False
 
     text_map = {
@@ -134,39 +178,73 @@ def click_buy_button_dji(
 
     texts = text_map.get(btn_state, [])
 
-    take_screenshot(page, screenshot_dir, tag="dji_before_click")
+    if capture_screenshot:
+        take_screenshot(page, screenshot_dir, tag="dji_before_click")
 
-    match = find_action_element(
-        page,
-        selectors,
-        "btn_buy_now" if btn_state == ButtonState.BUY_NOW else "btn_add_to_cart",
-        texts,
-        blocked_texts=["售罄", "Sold Out", "到货通知", "Notify Me"],
-    )
-    if match:
+    attempts = max(1, busy_retry_attempts)
+    clicked_once = False
+    for attempt in range(1, attempts + 1):
+        dismiss_dji_popups(page)
+        match = find_action_element(
+            page,
+            selectors,
+            "btn_buy_now" if btn_state == ButtonState.BUY_NOW else "btn_add_to_cart",
+            texts,
+            blocked_texts=["售罄", "Sold Out", "到货通知", "Notify Me"],
+        )
+        if not match:
+            if clicked_once:
+                if any(kw in page.url for kw in ("cart", "checkout", "order", "payment")):
+                    return True
+                page.wait_for_timeout(int(max(0.05, busy_retry_interval) * 1000))
+                continue
+            continue
         try:
             logger.info(
-                '命中购买按钮：platform=dji state=%s selector="%s" text="%s" tag=%s class="%s" id="%s"',
+                '命中购买按钮：platform=dji state=%s attempt=%d/%d selector="%s" text="%s" tag=%s class="%s" id="%s"',
                 btn_state,
+                attempt,
+                attempts,
                 match["selector"],
                 match["text"],
                 match["tag"],
                 match["class"],
                 match["id"],
             )
-            emit_event(
-                "dji",
-                "stock_found",
-                f"大疆准备点击购买按钮：{btn_state}",
-                extra={"selector": match["selector"], "text": match["text"], "url": page.url},
-            )
-            match["element"].click()
-            page.wait_for_timeout(2000)
-            take_screenshot(page, screenshot_dir, tag="dji_after_click")
+            if attempt == 1:
+                emit_event(
+                    "dji",
+                    "stock_found",
+                    f"大疆准备点击购买按钮：{btn_state}",
+                    extra={"selector": match["selector"], "text": match["text"], "url": page.url},
+                )
+            clicked_once = True
+            match["element"].click(timeout=1500)
+            page.wait_for_timeout(300)
+            if any(kw in page.url for kw in ("cart", "checkout", "order", "payment")):
+                if capture_screenshot:
+                    take_screenshot(page, screenshot_dir, tag="dji_after_click")
+                return True
+            busy_message = dji_busy_message(page)
+            if busy_message:
+                logger.warning(
+                    "大疆点击后出现拥挤提示：%s，attempt=%d/%d",
+                    busy_message,
+                    attempt,
+                    attempts,
+                )
+                if attempt < attempts:
+                    page.wait_for_timeout(int(max(0.05, busy_retry_interval) * 1000))
+                    continue
+            if capture_screenshot:
+                take_screenshot(page, screenshot_dir, tag="dji_after_click")
             return True
         except Exception as exc:  # noqa: BLE001
             logger.warning("大疆按钮点击失败：%s", exc)
+            page.wait_for_timeout(int(max(0.05, busy_retry_interval) * 1000))
 
+    if clicked_once:
+        return True
     logger.error("大疆官网：所有按钮点击方式均失败")
     return False
 
@@ -325,6 +403,11 @@ def run_watch_loop_dji(cfg: dict[str, Any], dry_run_override: bool = False) -> N
     high_freq_before = float(schedule_cfg.get("high_freq_seconds_before", 60))
     max_retry = int(schedule_cfg.get("max_retry_on_error", 5))
     retry_wait = float(schedule_cfg.get("retry_wait_seconds", 3.0))
+    warmup_reload_interval = float(schedule_cfg.get("warmup_reload_interval_seconds", poll_warmup))
+    high_freq_reload_interval = float(schedule_cfg.get("high_freq_reload_interval_seconds", 1.0))
+    login_check_interval = float(schedule_cfg.get("login_check_interval_seconds", 60.0))
+    busy_retry_attempts = int(purchase_cfg.get("busy_retry_attempts", 6))
+    busy_retry_interval = float(purchase_cfg.get("busy_retry_interval_seconds", 0.15))
 
     dry_run = dry_run_override or purchase_cfg.get("dry_run", True)
     screenshot_dir = str(_PROJECT_ROOT / log_cfg.get("screenshot_dir", "screenshots"))
@@ -334,6 +417,11 @@ def run_watch_loop_dji(cfg: dict[str, Any], dry_run_override: bool = False) -> N
 
     error_count = 0
     seckill_state = SeckillState.WAITING
+    login_manually_confirmed = False
+    last_login_unknown_notice = 0.0
+    last_login_check_at = 0.0
+    last_reload_at = 0.0
+    last_purchase_screenshot_at = 0.0
 
     with sync_playwright() as pw:
         context = create_browser_context(pw, browser_cfg, str(_PROJECT_ROOT))
@@ -349,6 +437,7 @@ def run_watch_loop_dji(cfg: dict[str, Any], dry_run_override: bool = False) -> N
             page.goto(product_url, wait_until="domcontentloaded")
             page.wait_for_timeout(2000)  # 大疆官网 JS 渲染较慢
             dismiss_cookie_banner(page, "dji", screenshot_dir)
+            dismiss_dji_popups(page)
             scr_path = take_screenshot(page, screenshot_dir, tag="dji_page_open")
             emit_event("dji", "monitoring", "大疆商品页已打开", scr_path, {"url": page.url})
 
@@ -367,6 +456,11 @@ def run_watch_loop_dji(cfg: dict[str, Any], dry_run_override: bool = False) -> N
                 page.wait_for_timeout(2000)
                 scr_path = take_screenshot(page, screenshot_dir, tag="dji_after_login")
                 emit_event("dji", "monitoring", "大疆登录处理后继续监控", scr_path, {"url": page.url})
+                login_manually_confirmed = True
+                last_login_check_at = time.monotonic()
+            else:
+                login_manually_confirmed = True
+                last_login_check_at = time.monotonic()
 
             logger.info("大疆官网：开始监控商品：%s", product_name)
             send_notification(
@@ -408,13 +502,24 @@ def run_watch_loop_dji(cfg: dict[str, Any], dry_run_override: bool = False) -> N
                     countdown_str = format_countdown(secs) if sale_time else "无限制"
                     logger.info("[大疆-%s] 距开售：%s | 间隔：%.1fs", phase_name, countdown_str, poll_interval)
 
-                    if seckill_state in (SeckillState.HIGH_FREQ, SeckillState.WARMUP):
+                    now = time.monotonic()
+                    should_reload = (
+                        seckill_state == SeckillState.WARMUP
+                        and now - last_reload_at >= warmup_reload_interval
+                    ) or (
+                        seckill_state == SeckillState.HIGH_FREQ
+                        and now - last_reload_at >= high_freq_reload_interval
+                    )
+                    if should_reload:
                         try:
                             page.reload(wait_until="domcontentloaded")
-                            page.wait_for_timeout(1000)
+                            page.wait_for_timeout(200)
+                            last_reload_at = time.monotonic()
                         except Exception as re:
                             logger.warning("大疆：刷新失败：%s", re)
                             page.goto(product_url, wait_until="domcontentloaded")
+                            last_reload_at = time.monotonic()
+                    dismiss_dji_popups(page)
 
                     # 验证码检测
                     if check_captcha(page, selectors, platform="dji"):
@@ -427,21 +532,39 @@ def run_watch_loop_dji(cfg: dict[str, Any], dry_run_override: bool = False) -> N
                         seckill_state = SeckillState.HIGH_FREQ
                         continue
 
-                    login_state = wait_for_login_state(page, selectors, "dji", dry_run)
-                    if login_state != LoginState.LOGGED_IN:
-                        logger.warning("大疆：登录失效，暂停并通知人工接管")
-                        scr_path = take_screenshot(page, screenshot_dir, tag="dji_login_expired")
-                        emit_event("dji", "need_human", "大疆登录失效或状态未知", scr_path, {"url": page.url})
-                        notify_human_takeover(
-                            "大疆官网登录失效，请重新登录后按 Enter 继续",
-                            notify_cfg,
-                        )
-                        seckill_state = SeckillState.PAUSED
-                        input(">>> 请重新登录大疆账号，然后按 Enter 继续...")
-                        page.reload(wait_until="domcontentloaded")
-                        page.wait_for_timeout(2000)
-                        seckill_state = SeckillState.HIGH_FREQ
-                        continue
+                    now = time.monotonic()
+                    if (
+                        not login_manually_confirmed
+                        or now - last_login_check_at >= login_check_interval
+                    ):
+                        last_login_check_at = now
+                        login_state = wait_for_login_state(page, selectors, "dji", dry_run)
+                        if login_state == LoginState.UNKNOWN and login_manually_confirmed:
+                            if now - last_login_unknown_notice > 300:
+                                logger.warning("大疆：登录态无法明确识别，但已人工确认登录，本轮继续监控")
+                                emit_event(
+                                    "dji",
+                                    "monitoring",
+                                    "大疆登录态未知但已人工确认，本轮继续监控",
+                                    extra={"url": page.url},
+                                )
+                                last_login_unknown_notice = now
+                        elif login_state != LoginState.LOGGED_IN:
+                            logger.warning("大疆：检测到未登录或登录失效，暂停并通知人工接管")
+                            scr_path = take_screenshot(page, screenshot_dir, tag="dji_login_expired")
+                            emit_event("dji", "need_human", "大疆登录失效或状态未知", scr_path, {"url": page.url})
+                            notify_human_takeover(
+                                "大疆官网登录失效，请重新登录后按 Enter 继续",
+                                notify_cfg,
+                            )
+                            seckill_state = SeckillState.PAUSED
+                            input(">>> 请重新登录大疆账号，然后按 Enter 继续...")
+                            page.reload(wait_until="domcontentloaded")
+                            page.wait_for_timeout(1000)
+                            login_manually_confirmed = True
+                            last_login_check_at = time.monotonic()
+                            seckill_state = SeckillState.HIGH_FREQ
+                            continue
 
                     # 按钮状态检测
                     btn_state = detect_button_state_dji(page, selectors)
@@ -449,7 +572,12 @@ def run_watch_loop_dji(cfg: dict[str, Any], dry_run_override: bool = False) -> N
 
                     if btn_state in (ButtonState.BUY_NOW, ButtonState.ADD_TO_CART):
                         logger.info("大疆：检测到可购买按钮！")
-                        scr_path = take_screenshot(page, screenshot_dir, tag="dji_btn_available")
+                        now = time.monotonic()
+                        capture_purchase_screenshot = now - last_purchase_screenshot_at > 20
+                        scr_path = ""
+                        if capture_purchase_screenshot:
+                            scr_path = take_screenshot(page, screenshot_dir, tag="dji_btn_available")
+                            last_purchase_screenshot_at = now
                         emit_event(
                             "dji",
                             "stock_found",
@@ -461,7 +589,14 @@ def run_watch_loop_dji(cfg: dict[str, Any], dry_run_override: bool = False) -> N
 
                         seckill_state = SeckillState.PURCHASING
                         clicked = click_buy_button_dji(
-                            page, selectors, btn_state, dry_run, screenshot_dir
+                            page,
+                            selectors,
+                            btn_state,
+                            dry_run,
+                            screenshot_dir,
+                            busy_retry_attempts=busy_retry_attempts,
+                            busy_retry_interval=busy_retry_interval,
+                            capture_screenshot=capture_purchase_screenshot,
                         )
 
                         if dry_run:
