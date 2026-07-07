@@ -217,7 +217,12 @@ def handle_dji_checkout(
     logger.info("大疆：已进入结算/购物车页：%s", current_url)
     scr_path = take_screenshot(page, screenshot_dir, tag="dji_checkout_page")
     emit_event("dji", "checkout", "大疆已进入结算页", scr_path, {"url": current_url})
-    notify_purchase_success(product_name, scr_path, notify_cfg)
+    send_notification(
+        "大疆已进入结算页",
+        f"商品：{product_name}\n请关注订单页状态，自动提交成功后才会发送成功通知。",
+        level="info",
+        notify_cfg=notify_cfg,
+    )
 
     if not auto_submit:
         logger.info("auto_submit_order=False，停在结算页等待人工支付")

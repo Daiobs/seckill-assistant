@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -42,14 +43,23 @@ def emit_event(
     """Append an event and update the latest per-platform runtime state."""
     RUNTIME_DIR.mkdir(parents=True, exist_ok=True)
     ts = datetime.now().astimezone().isoformat(timespec="seconds")
+    event_extra = dict(extra or {})
+    if os.environ.get("SECKILL_RUN_ID") and "run_id" not in event_extra:
+        event_extra["run_id"] = os.environ["SECKILL_RUN_ID"]
+    if os.environ.get("SECKILL_PLATFORM") == platform and "pid" not in event_extra:
+        event_extra["pid"] = os.getpid()
     event = {
         "ts": ts,
         "platform": platform,
         "state": state,
         "message": message,
         "screenshot": screenshot,
-        "extra": extra or {},
+        "extra": event_extra,
     }
+    if "run_id" in event_extra:
+        event["run_id"] = event_extra["run_id"]
+    if "pid" in event_extra:
+        event["pid"] = event_extra["pid"]
     with EVENTS_PATH.open("a", encoding="utf-8") as f:
         f.write(json.dumps(event, ensure_ascii=False) + "\n")
 
@@ -66,8 +76,12 @@ def emit_event(
     )
     if screenshot:
         job["latest_screenshot"] = screenshot
-    if extra:
-        job["extra"] = extra
+    if event_extra:
+        job["extra"] = event_extra
+    if "run_id" in event_extra:
+        job["run_id"] = event_extra["run_id"]
+    if "pid" in event_extra:
+        job["pid"] = event_extra["pid"]
     _write_json(STATE_PATH, current)
     return event
 

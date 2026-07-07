@@ -343,8 +343,14 @@ def detect_login_state(page: Page, selectors: dict[str, str], platform: str = ""
     logger = logging.getLogger("seckill.utils")
     logged_out_keywords = (
         "请登录",
+        "登录/注册",
+        "登录 / 注册",
+        "登录注册",
+        "登录",
+        "注册",
         "立即登录",
         "sign in",
+        "log in",
         "login",
         "重新登录",
         "未登录",
@@ -360,6 +366,10 @@ def detect_login_state(page: Page, selectors: dict[str, str], platform: str = ""
         "avatar",
         "退出",
         "logout",
+        "用户中心",
+        "user-center",
+        "user center",
+        "logged-in",
     )
     try:
         for selector in _selector_list(login_sel):
@@ -370,12 +380,13 @@ def detect_login_state(page: Page, selectors: dict[str, str], platform: str = ""
                 text = summary["text"].strip()
                 text_lower = text.lower()
                 marker = f"{text} {summary['class']} {summary['id']}".lower()
+                if any(keyword.lower() in marker for keyword in ("退出", "logout")):
+                    logger.info("登录态检测：platform=%s selector=%s -> logged_in", platform, selector)
+                    return LoginState.LOGGED_IN
                 explicit_logged_out = any(
                     keyword.lower() in text_lower
                     for keyword in logged_out_keywords
-                    if keyword.lower() not in ("login",)
                 )
-                explicit_logged_out = explicit_logged_out or text_lower in ("登录", "login")
                 if explicit_logged_out:
                     logger.info("登录态检测：platform=%s selector=%s -> logged_out", platform, selector)
                     return LoginState.LOGGED_OUT
@@ -383,14 +394,17 @@ def detect_login_state(page: Page, selectors: dict[str, str], platform: str = ""
                     if any(keyword.lower() in marker for keyword in logged_in_keywords):
                         logger.info("登录态检测：platform=%s selector=%s -> logged_in", platform, selector)
                         return LoginState.LOGGED_IN
-                    if len(text) >= 2 and text not in ("-", "..."):
+                    if len(text) >= 2 and text not in ("-", "...") and not explicit_logged_out:
                         return LoginState.LOGGED_IN
     except Exception:  # noqa: BLE001
         return LoginState.UNKNOWN
 
     body = _page_text(page)
     body_lower = body.lower()
-    if any(keyword.lower() in body_lower for keyword in ("请登录", "登录后", "sign in", "login")):
+    if any(
+        keyword.lower() in body_lower
+        for keyword in ("请登录", "立即登录", "登录后", "sign in", "log in", "login")
+    ):
         return LoginState.LOGGED_OUT
     return LoginState.UNKNOWN
 
@@ -631,16 +645,15 @@ def verify_after_submit(page: Page, cfg: dict[str, Any], platform: str) -> tuple
     current_url = page.url.lower()
     body_text = _page_text(page)
     body_lower = body_text.lower()
-    success_url_keywords = ("payment", "pay", "cashier", "success", "order")
+    success_url_keywords = ("payment", "pay", "cashier", "success")
     success_text_keywords = (
         "订单提交成功",
         "提交成功",
         "去支付",
         "收银台",
         "订单号",
-        "支付",
-        "payment",
-        "cashier",
+        "立即支付",
+        "支付订单",
     )
     failure_keywords = (
         "验证码",
@@ -657,17 +670,6 @@ def verify_after_submit(page: Page, cfg: dict[str, Any], platform: str) -> tuple
         "二次确认",
     )
 
-    for keyword in failure_keywords:
-        if keyword.lower() in body_lower:
-            return False, f"{platform} 提交后需要人工处理：页面出现“{keyword}”"
-
-    if any(keyword in current_url for keyword in success_url_keywords):
-        return True, f"{platform} 提交后进入支付/订单相关页面：{page.url}"
-
-    for keyword in success_text_keywords:
-        if keyword.lower() in body_lower:
-            return True, f"{platform} 提交成功：页面出现“{keyword}”"
-
     submit_selectors = cfg.get("selectors", {}).get("checkout_submit", "")
     for selector in _selector_list(submit_selectors):
         try:
@@ -677,7 +679,18 @@ def verify_after_submit(page: Page, cfg: dict[str, Any], platform: str) -> tuple
         except Exception:  # noqa: BLE001
             continue
 
-    return False, f"{platform} 提交结果未知：未识别到支付页或成功提示"
+    for keyword in failure_keywords:
+        if keyword.lower() in body_lower:
+            return False, f"{platform} 提交后需要人工处理：页面出现“{keyword}”"
+
+    if any(keyword in current_url for keyword in success_url_keywords):
+        return True, f"{platform} 已进入支付/订单成功页面：{page.url}"
+
+    for keyword in success_text_keywords:
+        if keyword.lower() in body_lower:
+            return True, f"{platform} 已进入支付/订单成功页面：页面出现“{keyword}”"
+
+    return False, f"{platform} 提交后未识别到支付页或订单成功信号，请人工确认"
 
 
 # ---------------------------------------------------------------------------
