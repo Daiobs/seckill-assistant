@@ -66,6 +66,7 @@ BUSY_RETRY_KEYWORDS = (
     "too many",
     "try again later",
 )
+CHECKOUT_URL_KEYWORDS = ("cart", "checkout", "order", "payment")
 
 
 # ---------------------------------------------------------------------------
@@ -99,6 +100,54 @@ def dji_busy_message(page: Page) -> str:
         if keyword.lower() in text_lower:
             return keyword
     return ""
+
+
+def is_dji_checkout_url(url: str) -> bool:
+    """Return whether a URL is likely a cart/checkout/order/payment page."""
+    return any(keyword in url for keyword in CHECKOUT_URL_KEYWORDS)
+
+
+def wait_after_dji_click(
+    page: Page,
+    selectors: dict[str, str],
+    btn_state: str,
+    texts: list[str],
+    watch_seconds: float,
+    poll_interval: float,
+) -> str:
+    """
+    Observe the current page after clicking buy.
+
+    Returns:
+      checkout: navigated to cart/checkout/order/payment
+      busy: DJI showed a transient overload message
+      recovered: buy button became clickable again
+      timeout: button stayed loading/unknown past the watch window
+    """
+    deadline = time.monotonic() + max(0.3, watch_seconds)
+    sleep_ms = int(max(0.05, poll_interval) * 1000)
+    selector_key = "btn_buy_now" if btn_state == ButtonState.BUY_NOW else "btn_add_to_cart"
+    page.wait_for_timeout(sleep_ms)
+    while time.monotonic() < deadline:
+        if is_dji_checkout_url(page.url):
+            return "checkout"
+        busy_message = dji_busy_message(page)
+        if busy_message:
+            logger.warning("大疆点击后出现拥挤提示：%s", busy_message)
+            return "busy"
+        dismiss_dji_popups(page)
+        match = find_action_element(
+            page,
+            selectors,
+            selector_key,
+            texts,
+            blocked_texts=["售罄", "Sold Out", "到货通知", "Notify Me"],
+        )
+        if match:
+            return "recovered"
+        page.wait_for_timeout(sleep_ms)
+    logger.warning("大疆点击后持续转圈/无跳转 %.1fs，交回主循环刷新重试", watch_seconds)
+    return "timeout"
 
 
 def detect_button_state_dji(page: Page, selectors: dict[str, str]) -> str:
@@ -162,6 +211,8 @@ def click_buy_button_dji(
     *,
     busy_retry_attempts: int = 1,
     busy_retry_interval: float = 0.2,
+    post_click_watch_seconds: float = 3.5,
+    post_click_poll_interval: float = 0.15,
     capture_screenshot: bool = True,
 ) -> bool:
     """点击大疆官网购买按钮"""
@@ -194,7 +245,7 @@ def click_buy_button_dji(
         )
         if not match:
             if clicked_once:
-                if any(kw in page.url for kw in ("cart", "checkout", "order", "payment")):
+                if is_dji_checkout_url(page.url):
                     return True
                 page.wait_for_timeout(int(max(0.05, busy_retry_interval) * 1000))
                 continue
@@ -220,22 +271,27 @@ def click_buy_button_dji(
                 )
             clicked_once = True
             match["element"].click(timeout=1500)
-            page.wait_for_timeout(300)
-            if any(kw in page.url for kw in ("cart", "checkout", "order", "payment")):
+            outcome = wait_after_dji_click(
+                page,
+                selectors,
+                btn_state,
+                texts,
+                post_click_watch_seconds,
+                post_click_poll_interval,
+            )
+            if outcome == "checkout":
                 if capture_screenshot:
                     take_screenshot(page, screenshot_dir, tag="dji_after_click")
                 return True
-            busy_message = dji_busy_message(page)
-            if busy_message:
-                logger.warning(
-                    "大疆点击后出现拥挤提示：%s，attempt=%d/%d",
-                    busy_message,
-                    attempt,
-                    attempts,
-                )
+            if outcome in ("busy", "recovered"):
+                logger.warning("大疆点击后结果=%s，attempt=%d/%d", outcome, attempt, attempts)
                 if attempt < attempts:
                     page.wait_for_timeout(int(max(0.05, busy_retry_interval) * 1000))
                     continue
+            if outcome == "timeout":
+                if capture_screenshot:
+                    take_screenshot(page, screenshot_dir, tag="dji_after_click_timeout")
+                return True
             if capture_screenshot:
                 take_screenshot(page, screenshot_dir, tag="dji_after_click")
             return True
@@ -408,6 +464,8 @@ def run_watch_loop_dji(cfg: dict[str, Any], dry_run_override: bool = False) -> N
     login_check_interval = float(schedule_cfg.get("login_check_interval_seconds", 60.0))
     busy_retry_attempts = int(purchase_cfg.get("busy_retry_attempts", 6))
     busy_retry_interval = float(purchase_cfg.get("busy_retry_interval_seconds", 0.15))
+    post_click_watch_seconds = float(purchase_cfg.get("post_click_watch_seconds", 3.5))
+    post_click_poll_interval = float(purchase_cfg.get("post_click_poll_interval_seconds", 0.15))
 
     dry_run = dry_run_override or purchase_cfg.get("dry_run", True)
     screenshot_dir = str(_PROJECT_ROOT / log_cfg.get("screenshot_dir", "screenshots"))
@@ -596,6 +654,8 @@ def run_watch_loop_dji(cfg: dict[str, Any], dry_run_override: bool = False) -> N
                             screenshot_dir,
                             busy_retry_attempts=busy_retry_attempts,
                             busy_retry_interval=busy_retry_interval,
+                            post_click_watch_seconds=post_click_watch_seconds,
+                            post_click_poll_interval=post_click_poll_interval,
                             capture_screenshot=capture_purchase_screenshot,
                         )
 

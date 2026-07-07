@@ -52,6 +52,8 @@
     "cart_flow_fallback": true,
     "busy_retry_attempts": 8,
     "busy_retry_interval_seconds": 0.12,
+    "post_click_watch_seconds": 3.5,
+    "post_click_poll_interval_seconds": 0.15,
     "address_index": 0
   },
   "notify": {
